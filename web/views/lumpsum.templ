@@ -1,0 +1,130 @@
+package views
+
+import "github.com/lee5i3/debt-reducer/internal/debt"
+
+templ LumpSum(d LumpSumData) {
+	@Layout("One-time payment · Debt Reducer", "lump") {
+		<div class="page-head">
+			<h1>One-time payment</h1>
+			<p class="muted">Got a bonus, tax refund or windfall? See which debt it does the most good on.</p>
+		</div>
+		if len(d.Debts) == 0 {
+			<div class="empty">
+				<p>Add your debts first, then come back to plan a one-time payment.</p>
+				<a class="button" href="/debts">Add a debt</a>
+			</div>
+		} else {
+			<form class="controls" method="get" action="/lump-sum">
+				<label>
+					One-time amount ($)
+					<input type="number" name="amount" step="0.01" min="0.01" required autofocus value={ d.Amount } placeholder="5000.00"/>
+				</label>
+				<label>
+					Payment date
+					<input type="date" name="start" value={ isoDate(d.StartDate) }/>
+				</label>
+				<label>
+					Ongoing strategy
+					<select name="strategy">
+						for _, s := range debt.Strategies {
+							<option value={ string(s) } selected?={ s == d.Strategy }>{ s.Label() }</option>
+						}
+					</select>
+				</label>
+				<label>
+					Monthly budget
+					<input type="number" name="budget" step="0.01" min="0" value={ dollars(d.MonthlyBudget) }/>
+				</label>
+				<button type="submit">Find best account</button>
+			</form>
+			@alerts(d.Error, "")
+			if d.Analysis != nil {
+				@lumpSumResults(d.Analysis)
+			}
+		}
+	}
+}
+
+templ lumpSumResults(a *debt.LumpSumAnalysis) {
+	if best := a.Best(); best != nil {
+		<section class="recommend">
+			<span class="label">Best use of { a.Applied.String() }</span>
+			<strong>Pay { best.Target }</strong>
+			<p>
+				Saves <b>{ best.InterestSaved.String() }</b> in interest · { sooner(best.MonthsSaved) } ·
+				debt free <b>{ monthYear(best.Outcome.DebtFreeDate) }</b>
+			</p>
+			if len(best.PaidOff) > 0 {
+				<p class="muted">Pays off { joinNames(best.PaidOff) } and frees up { best.FreedMinimum.String() }/mo in minimums.</p>
+			}
+			if len(best.Allocations) > 1 {
+				<p class="muted">
+					More than { best.Target } owes — the rest goes to the next highest APR: { allocationList(best.Allocations) }
+				</p>
+			}
+			if a.Amount > a.Applied {
+				<p class="muted">Only { a.Applied.String() } is needed to clear every debt; { (a.Amount - a.Applied).String() } is left over.</p>
+			}
+		</section>
+	}
+	<p class="muted baseline">
+		Without the payment: debt free { monthYear(a.Baseline.DebtFreeDate) } ({ duration(a.Baseline.Months) }),
+		{ a.Baseline.TotalInterest.String() } in interest — using { a.Strategy.Label() } at { a.MonthlyBudget.String() }/mo.
+	</p>
+	<section>
+		<h2>All options</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>#</th>
+					<th>Apply to</th>
+					<th class="num">APR</th>
+					<th>Where the money goes</th>
+					<th class="num">Interest saved</th>
+					<th>Time saved</th>
+					<th>Debt free</th>
+					<th class="num">Frees /mo</th>
+				</tr>
+			</thead>
+			<tbody>
+				for i, o := range a.Options {
+					<tr class={ templ.KV("selected", o.Recommended) }>
+						<td>{ itoa(i + 1) }</td>
+						<td>
+							{ o.Target }
+							if o.Recommended {
+								<span class="tag">best</span>
+							}
+						</td>
+						<td class="num">{ percent(o.TargetAPR) }</td>
+						<td class="wrap-cell">
+							for j, al := range o.Allocations {
+								if j > 0 {
+									<br/>
+								}
+								{ al.Debt } { al.Amount.String() }
+								if al.PaidOff {
+									<span class="muted">(paid off)</span>
+								}
+							}
+						</td>
+						<td class="num good">{ o.InterestSaved.String() }</td>
+						<td>{ sooner(o.MonthsSaved) }</td>
+						<td>{ date(o.Outcome.DebtFreeDate) }</td>
+						<td class="num">
+							if o.FreedMinimum > 0 {
+								{ o.FreedMinimum.String() }
+							} else {
+								<span class="muted">—</span>
+							}
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+		<p class="muted note">
+			Ranked by interest saved. The highest-APR debt usually saves the most interest; paying off a
+			small debt entirely frees up its minimum payment, which can matter if your monthly budget is tight.
+		</p>
+	</section>
+}

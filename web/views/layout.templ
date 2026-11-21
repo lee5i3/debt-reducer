@@ -1,0 +1,45 @@
+package views
+
+templ Layout(title, active string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ title }</title>
+			<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='8' fill='%232f6fde'/></svg>"/>
+			<link rel="stylesheet" href="/static/app.css"/>
+		</head>
+		<body>
+			<header class="top">
+				<div class="wrap bar">
+					<a class="brand" href="/">Debt Reducer</a>
+					<nav>
+						<a href="/" class={ templ.KV("active", active == "plan") }>Plan</a>
+						<a href="/lump-sum" class={ templ.KV("active", active == "lump") }>One-time payment</a>
+						<a href="/debts" class={ templ.KV("active", active == "debts") }>Debts</a>
+					</nav>
+				</div>
+			</header>
+			<main class="wrap">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
+
+templ alerts(errMsg, notice string) {
+	if errMsg != "" {
+		<div class="alert" role="alert">{ errMsg }</div>
+	}
+	if notice != "" {
+		<div class="notice" role="status">{ notice }</div>
+	}
+}
+
+templ ErrorPage(msg string) {
+	@Layout("Error · Debt Reducer", "") {
+		@alerts(msg, "")
+		<p><a href="/">Back to plan</a></p>
+	}
+}

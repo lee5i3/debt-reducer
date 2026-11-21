@@ -1,0 +1,9 @@
+/bin/
+*_templ.go
+*_templ.txt
+
+# local SQLite database with your real debts
+/data/
+
+.playwright-mcp/
+.env
