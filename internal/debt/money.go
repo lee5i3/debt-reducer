@@ -74,3 +74,11 @@ func minMoney(a, b Money) Money {
 	}
 	return b
 }
+
+// MonthlyInterest is one month of interest on balance at apr percent a year,
+// rounded to the cent. It rounds half a cent up even when floating point
+// lands a hair below it (e.g. $6,200 at 24.99% is exactly $129.115).
+func MonthlyInterest(balance Money, apr float64) Money {
+	v := float64(balance) * apr / 1200
+	return Money(math.Round(math.Round(v*1e6) / 1e6))
+}

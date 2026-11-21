@@ -1,0 +1,65 @@
+package components
+
+import (
+	"strconv"
+
+	"github.com/lee5i3/debt-reducer/internal/debt"
+)
+
+// SettingsDialog is the settings popup. It opens over any page (?settings=1)
+// and saves back to that page.
+templ SettingsDialog(s Shell) {
+	@Modal("settings-title", "dialog", "", s.CloseURL()) {
+		<form method="post" action="/settings">
+			<input type="hidden" name="back" value={ s.CloseURL() }/>
+			<div class="modal-head">
+				<div>
+					<h2 id="settings-title">Settings</h2>
+					<p class="muted">How the app looks. Your plan is set up on the Plan page.</p>
+				</div>
+				<a class="icon-button ghost" href={ templ.SafeURL(s.CloseURL()) } aria-label="Close">
+					@IconX()
+				</a>
+			</div>
+			<div class="modal-body stack">
+				@Alerts(s.SettingsError, "")
+				<fieldset class="field settings-field">
+					<legend class="sr">Theme</legend>
+					<div class="label-text">Theme</div>
+					<div class="segmented">
+						<label>
+							<input type="radio" name="theme" value="dark" checked?={ s.Settings.Theme != debt.ThemeLight }/>
+							@Icon("moon")
+							Dark
+						</label>
+						<label>
+							<input type="radio" name="theme" value="light" checked?={ s.Settings.Theme == debt.ThemeLight }/>
+							@Icon("sun")
+							Light
+						</label>
+					</div>
+				</fieldset>
+				<label class="check-row">
+					<input type="checkbox" name="expand_current" value="1" checked?={ s.Settings.ExpandCurrent }/>
+					<span>
+						<strong>Open the current month</strong>
+						<span class="muted">Show the current month's payments by default on the Plan page.</span>
+					</span>
+				</label>
+				<div class="field settings-field notice-field">
+					<label for="settings-notice" class="label-text">Close "saved" messages after</label>
+					<select id="settings-notice" name="notice_seconds" class="short-select">
+						for _, n := range debt.NoticeChoices {
+							<option value={ strconv.Itoa(n) } selected?={ n == s.Settings.NoticeSeconds }>{ noticeLabel(n) }</option>
+						}
+					</select>
+					<span class="muted field-hint">Error messages stay until you close them.</span>
+				</div>
+			</div>
+			<div class="modal-foot">
+				<a class="button secondary" href={ templ.SafeURL(s.CloseURL()) }>Cancel</a>
+				<button type="submit">Save settings</button>
+			</div>
+		</form>
+	}
+}

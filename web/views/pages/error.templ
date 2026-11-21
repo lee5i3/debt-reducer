@@ -1,0 +1,10 @@
+package pages
+
+import "github.com/lee5i3/debt-reducer/web/views/components"
+
+templ ErrorPage(s components.Shell, msg string) {
+	@components.Layout(s, "Error · Debt Reducer") {
+		@components.Alerts(msg, "")
+		<p><a href="/">Back to plan</a></p>
+	}
+}

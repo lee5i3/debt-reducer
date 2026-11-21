@@ -1,0 +1,26 @@
+package components
+
+// MoneyInput is the one amount box used across the site: a "$" add-on, a
+// decimal keyboard on phones, and the value formatted as "1,234.56" both
+// when the page renders and when the box loses focus (script in layout).
+// Anything passed as children (e.g. a calculate button) goes at the end.
+templ MoneyInput(m MoneyField) {
+	<span class={ "affix", "money-input", templ.KV("short", m.Short) }>
+		<span class="addon" aria-hidden="true">$</span>
+		<input
+			if m.ID != "" {
+				id={ m.ID }
+			}
+			name={ m.Name }
+			type="text"
+			inputmode="decimal"
+			autocomplete="off"
+			placeholder="0.00"
+			value={ FormatMoney(m.Value) }
+			data-format="money"
+			aria-invalid={ boolText(m.Invalid) }
+			{ m.Attrs... }
+		/>
+		{ children... }
+	</span>
+}

@@ -3,7 +3,6 @@ package debt
 import (
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"time"
 )
@@ -50,7 +49,11 @@ func (d Debt) Validate() error {
 		return fmt.Errorf("%s: apr cannot be negative", d.Name)
 	case d.MinimumPayment <= 0:
 		return fmt.Errorf("%s: minimum payment must be greater than zero", d.Name)
-	case d.DueDay < 1 || d.DueDay > 31:
+	case d.Type != "" && !ValidType(d.Type):
+		return fmt.Errorf("%s: unknown type %q", d.Name, d.Type)
+	case d.Type == TypePromo && d.PromoTotal() < 0:
+		return fmt.Errorf("%s: purchases can't have a negative amount left", d.Name)
+	case d.DueDay < 0 || d.DueDay > 31:
 		return fmt.Errorf("%s: due day must be between 1 and 31", d.Name)
 	}
 	return nil
@@ -130,22 +133,42 @@ func (c *Calculator) Plan(req PlanRequest) (*Plan, error) {
 		month := Month{Number: period + 1}
 		payments := make(map[int]*Payment)
 		remaining := budget
+		if req.Adjust != nil {
+			remaining = req.Adjust(period, budget)
+		}
+		// Minimum-only plans don't roll freed-up minimums into other debts;
+		// only money added on top of the budget is used as extra.
+		extraOnly := max(remaining-budget, 0)
 
-		// 1. Accrue interest and pay minimums.
+		var alloc map[int64]Money
+		if req.Allocate != nil {
+			alloc = req.Allocate(period)
+		}
+
+		// 1. Accrue interest and pay minimums (or the month's set amounts).
 		for _, a := range accounts {
 			if a.balance == 0 {
 				continue
 			}
-			interest := Money(math.Round(float64(a.balance) * a.APR / 100 / 12))
+			interest := MonthlyInterest(a.balance, a.APR)
 			a.balance += interest
 			a.interest += interest
 
-			amt := minMoney(a.MinimumPayment, a.balance)
+			// An edited month can have less than the minimums; pay what there is.
+			target := a.MinimumPayment
+			if v, ok := alloc[a.ID]; ok {
+				target = v
+			}
+			amt := minMoney(target, a.balance)
+			if amt > remaining {
+				amt = max(remaining, 0)
+			}
 			a.balance -= amt
 			a.paid += amt
 			remaining -= amt
 
 			payments[a.index] = &Payment{
+				DebtID:   a.ID,
 				Debt:     a.Name,
 				Date:     dueDate(start, period, a.DueDay),
 				Amount:   amt,
@@ -154,17 +177,18 @@ func (c *Calculator) Plan(req PlanRequest) (*Plan, error) {
 		}
 
 		// 2. Apply extra money by strategy priority.
-		if req.Strategy != MinimumOnly {
-			for _, a := range prioritize(accounts, req.Strategy) {
-				if remaining == 0 {
-					break
-				}
-				amt := minMoney(remaining, a.balance)
-				a.balance -= amt
-				a.paid += amt
-				remaining -= amt
-				payments[a.index].Amount += amt
+		if req.Strategy == MinimumOnly {
+			remaining = min(remaining, extraOnly)
+		}
+		for _, a := range prioritize(accounts, req.Strategy, req.Order) {
+			if remaining <= 0 {
+				break
 			}
+			amt := minMoney(remaining, a.balance)
+			a.balance -= amt
+			a.paid += amt
+			remaining -= amt
+			payments[a.index].Amount += amt
 		}
 
 		// 3. Record results in original debt order.
@@ -242,7 +266,7 @@ func (c *Calculator) Compare(req PlanRequest) ([]*Plan, error) {
 }
 
 // prioritize returns open accounts ordered by who receives extra money first.
-func prioritize(accounts []*account, s Strategy) []*account {
+func prioritize(accounts []*account, s Strategy, o Order) []*account {
 	open := make([]*account, 0, len(accounts))
 	for _, a := range accounts {
 		if a.balance > 0 {
@@ -257,7 +281,20 @@ func prioritize(accounts []*account, s Strategy) []*account {
 				return a.balance < b.balance
 			}
 			return a.APR > b.APR
-		default: // Avalanche
+		case Custom:
+			o = o.Normalize()
+			high := o.First == OrderHighFirst
+			if o.By == OrderByBalance {
+				if a.balance != b.balance {
+					return (a.balance > b.balance) == high
+				}
+				return a.APR > b.APR
+			}
+			if a.APR != b.APR {
+				return (a.APR > b.APR) == high
+			}
+			return a.balance < b.balance
+		default: // Avalanche (and extra money on a minimum-only plan)
 			if a.APR != b.APR {
 				return a.APR > b.APR
 			}
@@ -271,6 +308,9 @@ func prioritize(accounts []*account, s Strategy) []*account {
 // payment is the next due date on or after start; if the due day does not
 // exist in a month (e.g. the 31st) the last day of that month is used.
 func dueDate(start time.Time, period, dueDay int) time.Time {
+	if dueDay < 1 {
+		dueDay = 1 // not set
+	}
 	offset := period
 	if start.Day() > dueDay {
 		offset++

@@ -121,3 +121,150 @@ func TestMoneyString(t *testing.T) {
 		}
 	}
 }
+
+func TestAdjustChangesOnePeriod(t *testing.T) {
+	base := PlanRequest{Debts: sampleDebts(), MonthlyBudget: FromDollars(800), Strategy: Avalanche, StartDate: start}
+	calc := NewCalculator()
+	plain, err := calc.Plan(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	extra := base
+	extra.Adjust = func(period int, budget Money) Money {
+		if period == 0 {
+			return budget + FromDollars(2000)
+		}
+		return budget
+	}
+	withLump, err := calc.Plan(extra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := withLump.Schedule[0].TotalPaid, FromDollars(2800); got != want {
+		t.Errorf("first period paid %s, want %s", got, want)
+	}
+	if withLump.TotalInterest >= plain.TotalInterest || withLump.Months > plain.Months {
+		t.Errorf("extra payment should save interest: %s vs %s", withLump.TotalInterest, plain.TotalInterest)
+	}
+
+	short := base
+	short.Adjust = func(period int, budget Money) Money {
+		if period == 0 {
+			return FromDollars(100) // less than the $405 of minimums
+		}
+		return budget
+	}
+	p, err := calc.Plan(short)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Schedule[0].TotalPaid; got != FromDollars(100) {
+		t.Errorf("short month paid %s, want $100.00", got)
+	}
+	for _, pay := range p.Schedule[0].Payments {
+		if pay.DebtID != 0 && pay.Amount < 0 {
+			t.Errorf("negative payment %+v", pay)
+		}
+	}
+}
+
+func TestCustomOrder(t *testing.T) {
+	// Car: 8000 @ 6.5%, Visa: 4500 @ 24.99%, Store: 900 @ 18%.
+	firstPaidOff := func(o Order) string {
+		p, err := NewCalculator().Plan(PlanRequest{Debts: sampleDebts(), MonthlyBudget: FromDollars(800), Strategy: Custom, Order: o, StartDate: start})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.Debts[0].Name
+	}
+	cases := []struct {
+		order Order
+		want  string
+	}{
+		{Order{By: OrderByInterest, First: OrderHighFirst}, "Visa"},
+		{Order{By: OrderByBalance, First: OrderLowFirst}, "Store Card"},
+		{Order{By: OrderByBalance, First: OrderHighFirst}, "Car"}, // the extra goes to the $8,000 car loan
+		{Order{By: OrderByInterest, First: OrderLowFirst}, "Car"}, // 6.5% is the lowest rate
+	}
+	for _, c := range cases {
+		if got := firstPaidOff(c.order); got != c.want {
+			t.Errorf("%s: first paid off %s, want %s", c.order.Describe(), got, c.want)
+		}
+	}
+
+	// Highest balance first sends the extra to the car loan in month one.
+	p, _ := NewCalculator().Plan(PlanRequest{Debts: sampleDebts(), MonthlyBudget: FromDollars(800), Strategy: Custom,
+		Order: Order{By: OrderByBalance, First: OrderHighFirst}, StartDate: start})
+	for _, pay := range p.Schedule[0].Payments {
+		if pay.Debt == "Car" && pay.Amount <= FromDollars(250) {
+			t.Errorf("car should get the extra, paid %s", pay.Amount)
+		}
+	}
+}
+
+func TestMinimumOnlyUsesOnlyAddedMoney(t *testing.T) {
+	req := PlanRequest{Debts: sampleDebts(), Strategy: MinimumOnly, StartDate: start}
+	plain, err := NewCalculator().Plan(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := plain.Schedule[0].TotalPaid, MinimumTotal(sampleDebts()); got != want {
+		t.Fatalf("minimum-only first month paid %s, want %s", got, want)
+	}
+	req.Adjust = func(period int, budget Money) Money {
+		if period == 0 {
+			return budget + FromDollars(1000)
+		}
+		return budget
+	}
+	extra, err := NewCalculator().Plan(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := extra.Schedule[0].TotalPaid, MinimumTotal(sampleDebts())+FromDollars(1000); got != want {
+		t.Errorf("with $1,000 added, first month paid %s, want %s", got, want)
+	}
+	if extra.TotalInterest >= plain.TotalInterest {
+		t.Errorf("added money should cut interest: %s vs %s", extra.TotalInterest, plain.TotalInterest)
+	}
+}
+
+func TestAllocatePaysSetAmounts(t *testing.T) {
+	debts := sampleDebts()
+	for i := range debts {
+		debts[i].ID = int64(i + 1) // Car 1, Visa 2, Store 3
+	}
+	req := PlanRequest{Debts: debts, MonthlyBudget: FromDollars(800), Strategy: Avalanche, StartDate: start,
+		Allocate: func(period int) map[int64]Money {
+			if period != 0 {
+				return nil
+			}
+			// Car: min, Visa: min, Store: $300 (min $35 + $265 extra).
+			return map[int64]Money{1: FromDollars(250), 2: FromDollars(120), 3: FromDollars(300)}
+		},
+		Adjust: func(period int, budget Money) Money {
+			if period == 0 {
+				return FromDollars(670)
+			}
+			return budget
+		},
+	}
+	p, err := NewCalculator().Plan(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]Money{}
+	for _, pay := range p.Schedule[0].Payments {
+		got[pay.Debt] = pay.Amount
+	}
+	if got["Car"] != FromDollars(250) || got["Visa"] != FromDollars(120) || got["Store Card"] != FromDollars(300) {
+		t.Errorf("first month payments = %v", got)
+	}
+	// Later months go back to the strategy (extra to Visa, highest rate).
+	for _, pay := range p.Schedule[1].Payments {
+		if pay.Debt == "Visa" && pay.Amount <= FromDollars(120) {
+			t.Errorf("month 2 Visa paid %s, want minimum + extra", pay.Amount)
+		}
+	}
+}

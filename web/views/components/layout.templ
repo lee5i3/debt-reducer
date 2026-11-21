@@ -1,0 +1,204 @@
+package components
+
+import "strconv"
+
+templ Layout(s Shell, title string) {
+	<!DOCTYPE html>
+	<html lang="en" data-theme={ s.ThemeName() }>
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content={ s.ThemeName() }/>
+			<title>{ title }</title>
+			<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%236ea0ff'/></svg>"/>
+			<link rel="stylesheet" href="/static/vendor/phosphor/regular.css"/>
+			<link rel="stylesheet" href="/static/app.css"/>
+		</head>
+		<body data-notice-seconds={ strconv.Itoa(s.NoticeSeconds) }>
+			<div class="shell">
+				<aside class="sidebar">
+					<a class="brand" href="/">
+						<span class="logo">
+							@IconLogo()
+						</span>
+						Debt Reducer
+					</a>
+					<nav class="side-nav" aria-label="Main">
+						<a href="/" class="nav-item" aria-current={ Current(s.Active == "plan") }>
+							@IconPlan()
+							Plan
+						</a>
+						<a href="/simulate" class="nav-item" aria-current={ Current(s.Active == "simulate") }>
+							@IconBolt()
+							Simulate
+						</a>
+						<a href="/debts" class="nav-item" aria-current={ Current(s.Active == "debts") }>
+							<span class="nav-label">
+								@IconCard()
+								Debts
+							</span>
+							if s.DebtCount > 0 {
+								<span class="badge">{ strconv.Itoa(s.DebtCount) }</span>
+							}
+						</a>
+					</nav>
+					if s.DebtCount > 0 {
+						<div class="side-summary">
+							<span class="muted">Total owed</span>
+							<strong>{ s.TotalOwed.String() }</strong>
+							if s.InterestPaid+s.InterestAhead > 0 {
+								<span class="side-interest" title={ s.InterestPaid.String() + " paid · " + s.InterestAhead.String() + " to come" }>
+									+ { s.InterestAhead.String() } interest to come
+								</span>
+								if s.InterestPaid > 0 {
+									<span class="muted">{ s.InterestPaid.String() } interest paid</span>
+								}
+							}
+							if !s.DebtFree.IsZero() {
+								<span class="muted">Debt free { s.DebtFree.Format("Jan 2006") }</span>
+							}
+						</div>
+					}
+				</aside>
+				<div class="main-col">
+					<header class="topbar">
+						<div class="top-actions">
+							<a href={ templ.SafeURL(s.SettingsURL()) } class="icon-button ghost" aria-label="Settings" aria-current={ Current(s.Settings != nil) }>
+								@IconSettings()
+							</a>
+						</div>
+					</header>
+					<main class="content">
+						{ children... }
+						if s.Settings != nil {
+							@SettingsDialog(s)
+						}
+					</main>
+				</div>
+			</div>
+			<script>
+				// Turn server-rendered dialogs into real modals: focus is trapped,
+				// and Escape or a click on the backdrop goes back to the list.
+				document.querySelectorAll("dialog[data-close]").forEach(function (d) {
+					if (d.open) { d.close(); d.showModal(); }
+					d.addEventListener("cancel", function (e) { e.preventDefault(); location.href = d.dataset.close; });
+					d.addEventListener("click", function (e) { if (e.target === d) { location.href = d.dataset.close; } });
+				});
+				// Banners: the ✕ closes one; "saved" notices also close on their
+				// own after the time set in Settings (0 keeps them open).
+				document.addEventListener("click", function (e) {
+					var b = e.target.closest("[data-dismiss]");
+					if (b) { b.closest(".alert, .notice").remove(); }
+				});
+				(function () {
+					var secs = parseInt(document.body.dataset.noticeSeconds || "0", 10);
+					if (!(secs > 0)) { return; }
+					document.querySelectorAll("[data-autoclose]").forEach(function (n) {
+						setTimeout(function () {
+							n.classList.add("is-leaving");
+							setTimeout(function () { n.remove(); }, 200);
+						}, secs * 1000);
+					});
+				})();
+				// Amount boxes take numbers only: ignore letters and symbols
+				// before they appear (pasted text is cleaned up below).
+				document.addEventListener("beforeinput", function (e) {
+					var el = e.target;
+					if (!el.dataset || el.dataset.format !== "money" || e.data == null) { return; }
+					if (e.inputType === "insertText" && /[^0-9.,]/.test(e.data)) { e.preventDefault(); }
+				});
+				// Amount boxes: add thousands separators as you type, keeping
+				// the cursor in place; only digits and one "." with 2 decimals.
+				document.addEventListener("input", function (e) {
+					var el = e.target;
+					if (!el.dataset || el.dataset.format !== "money") { return; }
+					var raw = el.value;
+					var caret = el.selectionStart == null ? raw.length : el.selectionStart;
+					// Digits (and the ".") before the cursor tell us where it belongs afterwards.
+					var before = raw.slice(0, caret).replace(/[^0-9.]/g, "").length;
+					var clean = raw.replace(/[^0-9.]/g, "");
+					var dot = clean.indexOf(".");
+					var whole = dot === -1 ? clean : clean.slice(0, dot);
+					var frac = dot === -1 ? null : clean.slice(dot + 1).replace(/\./g, "").slice(0, 2);
+					whole = whole.replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+					var out = frac === null ? whole : whole + "." + frac;
+					if (out === raw) { return; }
+					el.value = out;
+					var pos = 0, seen = 0;
+					while (pos < out.length && seen < before) {
+						if (/[0-9.]/.test(out[pos])) { seen++; }
+						pos++;
+					}
+					el.setSelectionRange(pos, pos);
+				});
+				// Amount and rate boxes: tidy to two decimals when you leave them
+				// (data-format="money" adds thousands separators).
+				document.addEventListener("focusout", function (e) {
+					var el = e.target;
+					if (!el.dataset || !el.dataset.format) { return; }
+					var n = parseFloat(el.value.replace(/[$,%\s]/g, ""));
+					if (!(n >= 0)) { return; }
+					el.value = el.dataset.format === "money"
+						? n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+						: n.toFixed(2);
+				});
+				// Dropdown menus (plan status): close on a click outside, on
+				// Escape, and when another menu opens.
+				function closeMenus(except) {
+					document.querySelectorAll("details.status-menu[open]").forEach(function (m) {
+						if (m !== except) { m.open = false; }
+					});
+				}
+				document.addEventListener("click", function (e) {
+					closeMenus(e.target.closest ? e.target.closest("details.status-menu") : null);
+				});
+				document.addEventListener("keydown", function (e) {
+					if (e.key !== "Escape") { return; }
+					var open = document.querySelector("details.status-menu[open]");
+					if (open) { open.open = false; open.querySelector("summary").focus(); }
+				});
+			</script>
+		</body>
+	</html>
+}
+
+// Alerts shows an error and/or a success notice.
+// bannerClose is the ✕ on a banner (the layout script wires it up).
+templ bannerClose() {
+	<button type="button" class="banner-close" data-dismiss aria-label="Close message">
+		@IconX()
+	</button>
+}
+
+templ Alerts(errMsg, notice string) {
+	if errMsg != "" {
+		<div class="alert" role="alert">
+			<span class="banner-text">{ errMsg }</span>
+			@bannerClose()
+		</div>
+	}
+	if notice != "" {
+		<div class="notice" role="status" data-autoclose>
+			@IconCheck()
+			<span class="banner-text">{ notice }</span>
+			@bannerClose()
+		</div>
+	}
+}
+
+// Modal is a dialog shown over the page; data-close is where Escape goes.
+templ Modal(labelledBy, role, size, closeURL string) {
+	<dialog class={ "modal", size } open role={ role } aria-labelledby={ labelledBy } data-close={ closeURL }>
+		<div class="modal-inner">
+			{ children... }
+		</div>
+	</dialog>
+}
+
+// Current is the aria-current value for a link: "page" when on.
+func Current(on bool) string {
+	if on {
+		return "page"
+	}
+	return "false"
+}

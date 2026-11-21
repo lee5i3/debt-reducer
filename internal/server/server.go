@@ -33,15 +33,29 @@ func NewRouter(h *handler.Handler) (http.Handler, error) {
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(static)))
 
 	// Web UI
-	r.Get("/", h.Dashboard)
-	r.Post("/settings", h.SaveSettings)
+	r.Get("/", h.PlanPage)
+	r.Get("/plan/setup", h.PlanSetupPage)
+	r.Post("/plan/setup", h.SavePlanSetup)
+	r.Route("/plan/months/{month}", func(r chi.Router) {
+		r.Get("/edit", h.EditMonthPage)
+		r.Post("/edit", h.SaveMonthEdit)
+		r.Post("/{action}", h.MarkMonth)
+	})
+	r.Get("/simulate", h.SimulatePage)
+	r.Post("/simulate/apply", h.ApplySimulation)
 	r.Get("/lump-sum", h.LumpSumPage)
+	r.Get("/settings", h.SettingsPage)
+	r.Post("/settings", h.SaveSettings)
 	r.Route("/debts", func(r chi.Router) {
 		r.Get("/", h.DebtsPage)
 		r.Post("/", h.CreateDebt)
-		r.Get("/{id}/edit", h.EditDebtPage)
+		r.Get("/new", h.NewDebtPage)
+		r.Get("/{id}", h.DebtDetailPage)
 		r.Post("/{id}", h.UpdateDebt)
+		r.Get("/{id}/edit", h.EditDebtPage)
+		r.Get("/{id}/delete", h.DeleteDebtPage)
 		r.Post("/{id}/delete", h.DeleteDebt)
+		r.Post("/{id}/active", h.SetDebtActive)
 	})
 
 	// JSON API
@@ -55,9 +69,12 @@ func NewRouter(h *handler.Handler) (http.Handler, error) {
 		})
 		r.Get("/settings", h.APIGetSettings)
 		r.Put("/settings", h.APISaveSettings)
+		r.Get("/preferences", h.APIGetPreferences)
+		r.Put("/preferences", h.APISavePreferences)
 		r.Get("/plan", h.APIPlan)
 		r.Get("/compare", h.APICompare)
 		r.Get("/lump-sum", h.APILumpSum)
+		r.Get("/minimum-payment", h.APIMinimumPayment)
 	})
 	return r, nil
 }

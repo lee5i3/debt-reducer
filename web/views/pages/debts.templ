@@ -1,0 +1,469 @@
+package pages
+
+import (
+	"fmt"
+	"github.com/lee5i3/debt-reducer/web/views/components"
+	"time"
+
+	"github.com/lee5i3/debt-reducer/internal/debt"
+)
+
+templ DebtsPage(d DebtsData) {
+	@components.Layout(d.Shell, "Debts · Debt Reducer") {
+		<div class="title-row">
+			<div class="page-head">
+				<h1>Debts</h1>
+				<p class="muted">
+					{ debtsSummary(d) }
+				</p>
+			</div>
+			<a class="button with-icon" href="/debts/new">
+				@components.IconPlus()
+				Add debt
+			</a>
+		</div>
+		@components.Alerts("", d.Notice)
+		if d.TotalCount > 0 {
+			<form class="search list-search" method="get" action="/debts" role="search">
+				@components.IconSearch()
+				<input type="search" name="q" value={ d.Query } placeholder="Search debts" aria-label="Search debts"/>
+			</form>
+		}
+		if d.Query != "" {
+			<p class="search-note">
+				{ itoa(len(d.Debts)) } of { itoa(d.TotalCount) } debts match “{ d.Query }”.
+				<a href="/debts">Clear search</a>
+			</p>
+		}
+		if d.TotalCount == 0 {
+			<div class="empty">
+				<p>No debts yet. Add each credit card, loan or balance you're paying off.</p>
+				<a class="button" href="/debts/new">Add your first debt</a>
+			</div>
+		} else if len(d.Debts) == 0 {
+			<p class="empty-dashed">No debts match your search.</p>
+		} else {
+			<ul class="debt-list" aria-label="Debts">
+				for _, x := range d.Debts {
+					<li class={ "debt-card", templ.KV("is-inactive", x.Inactive) }>
+						<a class="card-hit" href={ debtURL(x.ID, "") } aria-label={ "View details for " + x.Name }></a>
+						<div class="card-toggle">
+							@activeToggle(x)
+						</div>
+						<div class="debt-main">
+							<span class="debt-icon">
+								@components.IconCard()
+							</span>
+							<span class="debt-name">
+								<strong>{ x.Name }</strong>
+								<span class="muted">
+									{ x.Type }
+									if x.Inactive {
+										<span class="inactive-badge">Inactive</span>
+									}
+								</span>
+							</span>
+						</div>
+						<div class="stat strong balance">
+							<span class="stat-label">Left</span>
+							<strong>{ x.Balance.String() }</strong>
+							<span class="muted started">{ startedText(d.Started[x.ID]) }</span>
+						</div>
+						if x.InterestFree(time.Now()) {
+							@promoAPR(x)
+						} else {
+							@stat("APR", aprText(x), "apr")
+						}
+						@stat("Minimum", x.MinimumPayment.String(), "min")
+						<div class="debt-actions">
+							<a class="icon-button" href={ debtURL(x.ID, "/edit") } aria-label={ "Edit " + x.Name }>
+								@components.IconPencil()
+							</a>
+							<a class="icon-button danger" href={ debtURL(x.ID, "/delete") } aria-label={ "Delete " + x.Name }>
+								@components.IconTrash()
+							</a>
+						</div>
+					</li>
+				}
+			</ul>
+		}
+		switch d.Dialog {
+			case "form":
+				@debtFormDialog(d.Form)
+			case "detail":
+				@debtDetailDialog(d.Detail)
+			case "delete":
+				@deleteDebtDialog(d.Target)
+		}
+	}
+}
+
+// promoAPR shows 0% with a tooltip listing when each promotion expires.
+templ promoAPR(x debt.Debt) {
+	<div class="stat apr">
+		<span class="stat-label">APR</span>
+		<span class="tip" tabindex="0" aria-describedby={ fmt.Sprintf("promo-tip-%d", x.ID) }>
+			<strong>0%</strong>
+			@components.IconInfo()
+			<span class="tip-text" role="tooltip" id={ fmt.Sprintf("promo-tip-%d", x.ID) }>
+				<span class="tip-title">0% promotion expires</span>
+				for _, line := range promoTip(x) {
+					<span class="tip-line">{ line }</span>
+				}
+			</span>
+		</span>
+	</div>
+}
+
+templ stat(label, value, variant string) {
+	<div class={ "stat", variant }>
+		<span class="stat-label">{ label }</span>
+		<strong>{ value }</strong>
+	</div>
+}
+
+templ debtFormDialog(f DebtForm) {
+	@components.Modal("debt-form-title", "dialog", "", "/debts") {
+		<form id="debt-form" class="debt-form" method="post" action={ formAction(f) } novalidate>
+			<div class="modal-head">
+				<div>
+					<h2 id="debt-form-title">
+						if f.Editing() {
+							Edit debt
+						} else {
+							Add a debt
+						}
+					</h2>
+					<p class="muted">
+						if f.Editing() {
+							Update the numbers from your latest statement.
+						} else {
+							Everything here is on your latest statement.
+						}
+					</p>
+				</div>
+				<a class="icon-button ghost" href="/debts" aria-label="Close">
+					@components.IconX()
+				</a>
+			</div>
+			<div class="modal-body form-stack">
+				@components.Alerts(f.Error, "")
+				<div class="field">
+					<label for="debt-type">Type</label>
+					<select id="debt-type" name="type" autofocus aria-invalid={ ariaInvalid(f.Err("type")) }>
+						for _, t := range debt.Types {
+							<option value={ t } selected?={ t == f.Type }>{ t }</option>
+						}
+					</select>
+					@fieldError(f.Err("type"))
+				</div>
+				<div class="field">
+					<label for="debt-name">Name</label>
+					<input id="debt-name" name="name" type="text" autocomplete="off" placeholder={ namePlaceholder(f.Type) } value={ f.Name } maxlength="100" aria-invalid={ ariaInvalid(f.Err("name")) }/>
+					@fieldError(f.Err("name"))
+				</div>
+				<div class="balance-asof">
+					<div class="field not-promo-field">
+						<label for="debt-balance">
+							<span class="not-loan-inline">Balance ($)</span>
+							<span class="only-loan-inline">Remaining Principal ($)</span>
+						</label>
+						@components.MoneyInput(components.MoneyField{ID: "debt-balance", Name: "balance", Value: f.Balance, Invalid: f.Err("balance") != ""})
+						@fieldError(f.Err("balance"))
+					</div>
+					<div class="field asof-field">
+						<label for="debt-start">As of</label>
+						<input id="debt-start" name="start_date" type="date" max={ todayISO() } value={ f.StartDate } aria-invalid={ ariaInvalid(f.Err("start_date")) } aria-describedby="debt-start-hint"/>
+						@fieldError(f.Err("start_date"))
+					</div>
+				</div>
+				<span id="debt-start-hint" class="muted field-hint asof-hint">The date this amount is from, e.g. your statement date. Plan months from that month on are taken off it.</span>
+				<fieldset class="field only-promo purchases">
+					<legend>Promotional purchases</legend>
+					<span class="muted field-hint">Add each purchase with what's left on it and when its promotion expires.</span>
+					<div class="purchase-list" data-purchases>
+						for _, row := range f.Purchases {
+							@purchaseRow(row)
+						}
+					</div>
+					<template data-purchase-template>
+						@purchaseRow(PurchaseRow{})
+					</template>
+					<button type="submit" name="add_purchase" value="1" class="button secondary add-purchase" formnovalidate data-add-purchase>
+						@components.IconPlus()
+						Add another purchase
+					</button>
+					@fieldError(f.Err("promo"))
+					<div class="purchase-total">
+						<span>Current balance</span>
+						<strong data-purchase-total>{ f.PurchaseTotal }</strong>
+					</div>
+				</fieldset>
+				<div class="field apr-field">
+					<label for="debt-apr">Interest (%)</label>
+					<div class="affix short">
+						<input id="debt-apr" name="apr" type="text" inputmode="decimal" placeholder="0.00" value={ f.APR } data-format="rate" aria-invalid={ ariaInvalid(f.Err("apr")) }/>
+						<span class="addon end" aria-hidden="true">%</span>
+					</div>
+					@fieldError(f.Err("apr"))
+				</div>
+				<div class="field only-loan">
+					<label for="debt-term">Months remaining <span class="muted">(optional)</span></label>
+					<input id="debt-term" name="term_months" type="text" inputmode="numeric" placeholder="e.g. 48" value={ f.TermMonths } aria-invalid={ ariaInvalid(f.Err("term_months")) }/>
+					@fieldError(f.Err("term_months"))
+				</div>
+				<div class="field">
+					<label for="debt-payment">Monthly payment</label>
+					@components.MoneyInput(components.MoneyField{ID: "debt-payment", Name: "minimum_payment", Value: f.MinimumPayment, Invalid: f.Err("minimum_payment") != "", Attrs: templ.Attributes{"aria-describedby": "debt-payment-hint"}}) {
+						<button type="submit" name="calculate" value="1" class="addon-button" formnovalidate data-calculate aria-label="Calculate the monthly payment" title="Calculate the monthly payment">
+							@components.IconCalc()
+						</button>
+					}
+					<span id="debt-payment-hint" class="muted field-hint" data-calc-hint>From your statement, or tap calculate to work it out.</span>
+					@fieldError(f.Err("minimum_payment"))
+				</div>
+				<div class="field">
+					<label for="debt-due">Due Day</label>
+					<select id="debt-due" name="due_day" aria-invalid={ ariaInvalid(f.Err("due_day")) }>
+						<option value="" selected?={ f.DueDay == "" }>Not set</option>
+						for _, day := range dueDays {
+							<option value={ day } selected?={ day == f.DueDay }>{ day }</option>
+						}
+					</select>
+					@fieldError(f.Err("due_day"))
+				</div>
+			</div>
+			<div class="modal-body active-row">
+				<label class="check-row">
+					<input type="checkbox" name="active" value="1" checked?={ f.Active }/>
+					<span>
+						<strong>Active</strong>
+						<span class="muted">Include this debt in your plan and in Simulate. Turn off to keep it listed but leave it out.</span>
+					</span>
+				</label>
+			</div>
+			<div class="modal-foot">
+				<a class="button secondary" href="/debts">Cancel</a>
+				<button type="submit">
+					if f.Editing() {
+						Save changes
+					} else {
+						Save debt
+					}
+				</button>
+			</div>
+		</form>
+		<script>
+			// Calculate fills the monthly payment (the server does the maths);
+			// showing and hiding fields by type is done in CSS.
+			(function () {
+				var form = document.getElementById("debt-form");
+				if (!form) { return; }
+				var name = form.querySelector("#debt-name");
+				var payment = form.querySelector("#debt-payment");
+				var hint = form.querySelector("[data-calc-hint]");
+				var calc = form.querySelector("[data-calculate]");
+				var hints = { "Credit Card": "e.g. Visa card", "Loan": "e.g. Car loan", "Promotional Purchase": "e.g. Furniture financing" };
+				form.querySelector("#debt-type").addEventListener("change", function (e) {
+					name.placeholder = hints[e.target.value] || "";
+				});
+				calc.addEventListener("click", function (e) {
+					e.preventDefault();
+					var data = new FormData(form);
+					data.delete("name");
+					data.delete("due_day");
+					data.delete("minimum_payment");
+					fetch("/api/minimum-payment?" + new URLSearchParams(data))
+						.then(function (r) { return r.json(); })
+						.then(function (j) {
+							if (j.value) { payment.value = j.value; }
+							hint.textContent = j.rule;
+						})
+						.catch(function () {});
+				});
+				// Promotional purchases: add and remove rows, keep the total current.
+				var list = form.querySelector("[data-purchases]");
+				var tmpl = form.querySelector("[data-purchase-template]");
+				var total = form.querySelector("[data-purchase-total]");
+				function money(v) { var n = parseFloat(String(v).replace(/[$,\s]/g, "")); return n >= 0 ? n : 0; }
+				function updateTotal() {
+					var sum = 0;
+					list.querySelectorAll("[data-remaining]").forEach(function (el) { sum += money(el.value); });
+					total.textContent = sum.toLocaleString("en-US", { style: "currency", currency: "USD" });
+				}
+				form.querySelector("[data-add-purchase]").addEventListener("click", function (e) {
+					e.preventDefault();
+					list.appendChild(tmpl.content.cloneNode(true));
+					list.lastElementChild.querySelector("input").focus();
+				});
+				list.addEventListener("click", function (e) {
+					var btn = e.target.closest("[data-remove-purchase]");
+					if (!btn) { return; }
+					var row = btn.closest(".purchase-row");
+					if (list.children.length > 1) { row.remove(); } else { row.querySelectorAll("input").forEach(function (i) { i.value = ""; }); }
+					updateTotal();
+				});
+				list.addEventListener("input", updateTotal);
+			})();
+		</script>
+	}
+}
+
+templ purchaseRow(row PurchaseRow) {
+	<div class="purchase-row">
+		<label class="field">
+			<span class="field-label">Remaining</span>
+			@components.MoneyInput(components.MoneyField{Name: "promo_remaining", Value: row.Remaining, Invalid: row.Error != "", Attrs: templ.Attributes{"data-remaining": true}})
+		</label>
+		<label class="field">
+			<span class="field-label">Expires</span>
+			<input name="promo_ends" type="date" min={ tomorrow() } value={ row.Ends } aria-invalid={ ariaInvalid(row.Error) }/>
+		</label>
+		<button type="button" class="icon-button ghost danger" data-remove-purchase aria-label="Remove this purchase">
+			@components.IconTrash()
+		</button>
+		if row.Error != "" {
+			<span class="field-error row-error" role="alert">{ row.Error }</span>
+		}
+	</div>
+}
+
+templ fieldError(msg string) {
+	if msg != "" {
+		<span class="field-error" role="alert">{ msg }</span>
+	}
+}
+
+templ debtDetailDialog(x DebtDetail) {
+	@components.Modal("debt-detail-title", "dialog", "", "/debts") {
+		<div class="modal-head">
+			<div class="detail-title">
+				<span class="debt-icon">
+					@components.IconCard()
+				</span>
+				<div>
+					<h2 id="debt-detail-title">{ x.Debt.Name }</h2>
+					<p class="muted">{ x.Debt.Type }</p>
+				</div>
+			</div>
+			<a class="icon-button ghost" href="/debts" aria-label="Close" autofocus>
+				@components.IconX()
+			</a>
+		</div>
+		<div class="modal-body detail-body">
+			<div class="balance-panel">
+				<div class="balance-row">
+					<div>
+						<span class="stat-label">Left</span>
+						<strong class="balance-amount">{ x.Debt.Balance.String() }</strong>
+						<span class="muted started">{ startedText(x.Started) }</span>
+					</div>
+					<span class="muted share"><b>{ itoa(x.SharePercent) }%</b> of your total debt</span>
+				</div>
+				<div class="share-track" aria-hidden="true"><div class="share-fill" style={ widthPercent(x.SharePercent) }></div></div>
+			</div>
+			<div class="min-split">
+				<div class="split-head">
+					<strong>Where the minimum goes</strong>
+					<strong>{ x.Debt.MinimumPayment.String() }/mo</strong>
+				</div>
+				<div class="split-bar" role="img" aria-label={ x.MinimumInterest().String() + " to interest, " + x.OffBalance().String() + " off the balance" }>
+					if x.InterestPercent() > 0 {
+						<span class="split-interest" style={ widthPercent(x.InterestPercent()) }></span>
+					}
+					if x.OffBalance() > 0 {
+						<span class="split-principal"></span>
+					}
+				</div>
+				<div class="split-legend">
+					<span><i class="sq is-interest" aria-hidden="true"></i>Interest <b>{ x.MinimumInterest().String() }</b></span>
+					<span><i class="sq is-principal" aria-hidden="true"></i>Off the balance <b>{ x.OffBalance().String() }</b></span>
+				</div>
+				if !x.PayoffOK {
+					<p class="field-error">The minimum doesn't cover the interest, so this balance won't go down at the minimum.</p>
+				}
+			</div>
+			<dl class="detail-rows">
+				<div>
+					<dt>Interest rate</dt>
+					<dd>{ aprText(x.Debt) }</dd>
+				</div>
+				for _, p := range x.Debt.Promos {
+					<div>
+						<dt>Promotion until { p.Ends.Format("Jan 2, 2006") }</dt>
+						<dd>{ p.Remaining.String() } left</dd>
+					</div>
+				}
+				<div>
+					<dt>Paid off on your plan</dt>
+					if x.PlanSet || x.Debt.Balance == 0 || x.Debt.Inactive {
+						<dd>{ planPayoffText(x) }</dd>
+					} else {
+						<dd><a href="/">Set up your plan</a></dd>
+					}
+				</div>
+			</dl>
+		</div>
+		<div class="modal-foot spread">
+			<a class="text-danger" href={ debtURL(x.Debt.ID, "/delete") }>
+				@components.IconTrash()
+				Delete
+			</a>
+			<div class="foot-actions">
+				<form method="post" action={ debtURL(x.Debt.ID, "/active") }>
+					if x.Debt.Inactive {
+						<input type="hidden" name="active" value="1"/>
+						<button type="submit" class="secondary">
+							@components.Icon("play-circle")
+							Activate
+						</button>
+					} else {
+						<input type="hidden" name="active" value="0"/>
+						<button type="submit" class="secondary">
+							@components.Icon("pause-circle")
+							Deactivate
+						</button>
+					}
+				</form>
+				<a class="button" href={ debtURL(x.Debt.ID, "/edit") }>Edit debt</a>
+			</div>
+		</div>
+	}
+}
+
+templ deleteDebtDialog(x debt.Debt) {
+	@components.Modal("debt-delete-title", "alertdialog", "small", "/debts") {
+		<div class="modal-body">
+			<h2 id="debt-delete-title">Delete { x.Name }?</h2>
+			<p class="delete-text">This removes the debt from your list and your payoff plan.</p>
+		</div>
+		<form class="modal-foot" method="post" action={ debtURL(x.ID, "/delete") }>
+			<a class="button secondary" href="/debts" autofocus>Cancel</a>
+			<button type="submit" class="danger-fill">Delete debt</button>
+		</form>
+	}
+}
+
+func formAction(f DebtForm) templ.SafeURL {
+	if f.Editing() {
+		return debtURL(f.ID, "")
+	}
+	return templ.SafeURL("/debts")
+}
+
+// activeToggle switches a debt in or out of the plan from its card.
+templ activeToggle(x debt.Debt) {
+	<form method="post" action={ debtURL(x.ID, "/active") }>
+		if x.Inactive {
+			<input type="hidden" name="active" value="1"/>
+			<button type="submit" class="icon-button ghost small" aria-label={ "Activate " + x.Name } title="Activate: include in plan and Simulate">
+				@components.Icon("play-circle")
+			</button>
+		} else {
+			<input type="hidden" name="active" value="0"/>
+			<button type="submit" class="icon-button ghost small" aria-label={ "Deactivate " + x.Name } title="Deactivate: leave out of plan and Simulate">
+				@components.Icon("pause-circle")
+			</button>
+		}
+	</form>
+}

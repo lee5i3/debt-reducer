@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/lee5i3/debt-reducer/internal/debt"
 	"github.com/lee5i3/debt-reducer/internal/repository"
@@ -28,8 +29,12 @@ type DebtService interface {
 	Create(ctx context.Context, d debt.Debt) (debt.Debt, error)
 	Update(ctx context.Context, d debt.Debt) error
 	Delete(ctx context.Context, id int64) error
+	// SetActive puts a debt in the plan and Simulate, or leaves it out.
+	SetActive(ctx context.Context, id int64, active bool) error
 	Settings(ctx context.Context) (debt.Settings, error)
 	SaveSettings(ctx context.Context, s debt.Settings) error
+	Preferences(ctx context.Context) (debt.Preferences, error)
+	SavePreferences(ctx context.Context, p debt.Preferences) error
 }
 
 type debtService struct {
@@ -48,8 +53,37 @@ func (s *debtService) Get(ctx context.Context, id int64) (debt.Debt, error) {
 	return s.debts.Get(ctx, id)
 }
 
-func (s *debtService) Create(ctx context.Context, d debt.Debt) (debt.Debt, error) {
+// normalize trims input and fills defaults before validation.
+func normalize(d *debt.Debt) {
 	d.Name = strings.TrimSpace(d.Name)
+	if d.StartDate.IsZero() {
+		now := time.Now()
+		d.StartDate = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	}
+	if d.Type == "" {
+		d.Type = debt.DefaultType
+	}
+	if d.Type != debt.TypePromo {
+		d.Promos = nil
+		return
+	}
+	// A promotional account's balance is what remains on its purchases; it
+	// is interest-free while they run and its term ends with the last one.
+	if len(d.Promos) > 0 {
+		d.Balance = d.PromoTotal()
+		d.APR = 0
+		last := d.Promos[0].Ends
+		for _, p := range d.Promos {
+			if p.Ends.After(last) {
+				last = p.Ends
+			}
+		}
+		d.TermEnds = &last
+	}
+}
+
+func (s *debtService) Create(ctx context.Context, d debt.Debt) (debt.Debt, error) {
+	normalize(&d)
 	if err := d.Validate(); err != nil {
 		return d, invalid(err)
 	}
@@ -57,7 +91,7 @@ func (s *debtService) Create(ctx context.Context, d debt.Debt) (debt.Debt, error
 }
 
 func (s *debtService) Update(ctx context.Context, d debt.Debt) error {
-	d.Name = strings.TrimSpace(d.Name)
+	normalize(&d)
 	if err := d.Validate(); err != nil {
 		return invalid(err)
 	}
@@ -78,4 +112,22 @@ func (s *debtService) SaveSettings(ctx context.Context, set debt.Settings) error
 		return invalid(errors.New("monthly budget cannot be negative"))
 	}
 	return s.settings.Save(ctx, set)
+}
+
+func (s *debtService) Preferences(ctx context.Context) (debt.Preferences, error) {
+	return s.settings.Preferences(ctx)
+}
+
+func (s *debtService) SavePreferences(ctx context.Context, p debt.Preferences) error {
+	if !p.Theme.Valid() {
+		return fmt.Errorf("%w: theme must be dark or light", ErrInvalid)
+	}
+	if p.NoticeSeconds < 0 || p.NoticeSeconds > 60 {
+		return fmt.Errorf("%w: close banners after 0 to 60 seconds", ErrInvalid)
+	}
+	return s.settings.SavePreferences(ctx, p)
+}
+
+func (s *debtService) SetActive(ctx context.Context, id int64, active bool) error {
+	return s.debts.SetInactive(ctx, id, !active)
 }

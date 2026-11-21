@@ -1,0 +1,62 @@
+package components
+
+// Icons come from Phosphor (https://phosphoricons.com), served from
+// web/static/vendor/phosphor. Icon renders any of them by name, e.g.
+// @components.Icon("trash"). They're decorative: hidden from screen
+// readers, so label the button or link that holds them.
+templ Icon(name string) {
+	<i class={ "ph", "ph-" + name, "icon" } aria-hidden="true"></i>
+}
+
+// Named icons used across the app.
+templ IconLogo() {
+	@Icon("chart-line-down")
+}
+
+templ IconPlan() {
+	@Icon("chart-line")
+}
+
+templ IconBolt() {
+	@Icon("lightning")
+}
+
+templ IconCard() {
+	@Icon("credit-card")
+}
+
+templ IconSearch() {
+	@Icon("magnifying-glass")
+}
+
+templ IconPlus() {
+	@Icon("plus")
+}
+
+templ IconPencil() {
+	@Icon("pencil-simple")
+}
+
+templ IconTrash() {
+	@Icon("trash")
+}
+
+templ IconX() {
+	@Icon("x")
+}
+
+templ IconCheck() {
+	@Icon("check")
+}
+
+templ IconSettings() {
+	@Icon("sliders-horizontal")
+}
+
+templ IconCalc() {
+	@Icon("calculator")
+}
+
+templ IconInfo() {
+	@Icon("info")
+}

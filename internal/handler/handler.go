@@ -15,18 +15,21 @@ import (
 
 	"github.com/lee5i3/debt-reducer/internal/debt"
 	"github.com/lee5i3/debt-reducer/internal/service"
+	"github.com/lee5i3/debt-reducer/web/views/components"
+	"github.com/lee5i3/debt-reducer/web/views/pages"
 )
 
 // Handler serves the UI and API.
 type Handler struct {
 	debts   service.DebtService
 	planner service.Planner
+	plans   service.PlanService
 	log     *slog.Logger
 }
 
 // New is a dig constructor for Handler.
-func New(debts service.DebtService, planner service.Planner, log *slog.Logger) *Handler {
-	return &Handler{debts: debts, planner: planner, log: log}
+func New(debts service.DebtService, planner service.Planner, plans service.PlanService, log *slog.Logger) *Handler {
+	return &Handler{debts: debts, planner: planner, plans: plans, log: log}
 }
 
 // Health is a liveness probe.
@@ -89,6 +92,39 @@ func (h *Handler) userMessage(err error) string {
 	return strings.TrimPrefix(err.Error(), service.ErrInvalid.Error()+": ")
 }
 
+// shell loads the sidebar and top bar data shown on every page.
+func (h *Handler) shell(r *http.Request, active string) components.Shell {
+	tp, err := h.plans.Tracked(r.Context())
+	if err != nil {
+		h.log.Warn("load sidebar summary", "err", err)
+		return h.withPreferences(r, components.Shell{Active: active})
+	}
+	return h.shellFrom(r, active, tp)
+}
+
+// shellFrom builds the sidebar from an already-loaded plan. The debt-free
+// date comes from the saved plan, or from the saved settings before setup.
+func (h *Handler) shellFrom(r *http.Request, active string, tp *service.TrackedPlan) components.Shell {
+	s := h.withPreferences(r, components.Shell{Active: active, TotalOwed: tp.Owed,
+		InterestPaid: tp.InterestPaid(), InterestAhead: tp.InterestAhead()})
+	if debts, err := h.debts.List(r.Context()); err == nil {
+		s.DebtCount = len(debts)
+	}
+	if tp.Set {
+		s.DebtFree = tp.DebtFree()
+		return s
+	}
+	if res, err := h.planner.Build(r.Context(), service.Options{}); err == nil && res.Plan != nil {
+		s.DebtFree = res.Plan.DebtFreeDate
+	}
+	return s
+}
+
+// errorPage renders a full error page inside the app shell.
+func (h *Handler) errorPage(w http.ResponseWriter, r *http.Request, active string, err error) {
+	h.render(w, r, statusFor(err), pages.ErrorPage(h.shell(r, active), h.userMessage(err)))
+}
+
 func (h *Handler) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
@@ -105,4 +141,40 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (h *Handler) writeError(w http.ResponseWriter, err error) {
 	writeJSON(w, statusFor(err), map[string]string{"error": h.userMessage(err)})
+}
+
+// preferences loads the display settings, falling back to the defaults.
+func (h *Handler) preferences(r *http.Request) debt.Preferences {
+	p, err := h.debts.Preferences(r.Context())
+	if err != nil {
+		h.log.Warn("load preferences", "err", err)
+		return debt.DefaultPreferences
+	}
+	return p
+}
+
+// withPreferences adds the theme, the current URL and, when ?settings=1 is
+// set, what the settings popup needs.
+func (h *Handler) withPreferences(r *http.Request, s components.Shell) components.Shell {
+	p := h.preferences(r)
+	s.Theme = p.Theme
+	s.NoticeSeconds = p.NoticeSeconds
+	q := r.URL.Query()
+	open := q.Get("settings") == "1"
+	failed := q.Get("settings_err") == "1"
+	// Closing settings goes back to the page without its one-time banner.
+	for _, k := range []string{"settings", "settings_err", "msg", "name", "amount", "m"} {
+		q.Del(k)
+	}
+	s.Here = r.URL.Path
+	if len(q) > 0 {
+		s.Here += "?" + q.Encode()
+	}
+	if open {
+		s.Settings = &p
+		if failed {
+			s.SettingsError = "Those settings couldn't be saved. Pick a theme and try again."
+		}
+	}
+	return s
 }

@@ -1,0 +1,492 @@
+package pages
+
+import (
+	"fmt"
+	"github.com/lee5i3/debt-reducer/web/views/components"
+
+	"github.com/lee5i3/debt-reducer/internal/debt"
+	"github.com/lee5i3/debt-reducer/internal/service"
+)
+
+templ PlanPage(d PlanData) {
+	@components.Layout(d.Shell, "Plan · Debt Reducer") {
+		if !d.Plan.Set {
+			<div class="page-head">
+				<h1>Set up your plan</h1>
+				<p class="muted">Pick how to pay off your debts and how much you can put toward them each month. Then mark each month as you pay it.</p>
+			</div>
+			@components.Alerts(d.Error, d.Notice)
+			if d.Plan.Owed == 0 {
+				<div class="empty">
+					<p>Add your debts first, then come back to set up your plan.</p>
+					<a class="button" href="/debts/new">Add your first debt</a>
+				</div>
+			} else {
+				@setupForm(d.Setup, false)
+			}
+		} else {
+			<div class="title-row">
+				<div class="page-head">
+					<h1>Payoff plan</h1>
+					<p class="muted">{ strategyText(d.Plan.Strategy, d.Plan.Order) } · { d.Plan.MonthlyBudget.String() }/mo · started { monthLong(d.Plan.Start) }</p>
+					for _, c := range d.Plan.Changes {
+						<p class="muted plan-change">Goes to { c.Amount.String() }/mo from { monthLong(c.Month) }</p>
+					}
+				</div>
+				<a class="button secondary with-icon" href="/plan/setup">Change plan setup</a>
+			</div>
+			@components.Alerts(firstNonEmpty(d.Error, d.Plan.Error), d.Notice)
+			@planSummary(d.Plan)
+			<h2>Month by month</h2>
+			<p class="muted section-hint">Open a month to see what each debt gets. Set the current month when you pay it: Paid takes it off what you owe; Skip adds that month's interest and moves the rest back a month. Paid and skipped months are hidden.</p>
+			if len(d.Rows) == 0 {
+				<p class="empty-dashed">Everything is paid off. Nice work.</p>
+			} else {
+				<div class="month-grid month-head" aria-hidden="true">
+					<span>Month</span>
+					<span class="num">Payment</span>
+					<span class="num">Interest</span>
+					<span class="num">Still owed</span>
+					<span class="num">Status</span>
+				</div>
+				<div class="plan-months">
+					if d.Plan.MarkedCount > 0 {
+						<label class="toggle show-hidden">
+							<input type="checkbox" id="show-hidden"/>
+							Show hidden ({ itoa(d.Plan.MarkedCount) } paid or skipped)
+						</label>
+					}
+					<ol class="months">
+						for _, m := range d.Rows {
+							@monthRow(m, d.ExpandCurrent)
+						}
+					</ol>
+				</div>
+				if d.Hidden > 0 {
+					<a class="button secondary show-all" href="/?all=1">Show all { itoa(len(d.Plan.Months)) } months</a>
+				} else if d.ShowAll {
+					<a class="button secondary show-all" href="/">Show fewer months</a>
+				}
+			}
+		}
+		switch d.Dialog {
+			case "setup":
+				@components.Modal("setup-title", "dialog", "", "/") {
+					@setupForm(d.Setup, true)
+				}
+			case "edit":
+				@editMonthDialog(d.Edit)
+		}
+	}
+}
+
+templ planSummary(p *service.TrackedPlan) {
+	<section class="cards">
+		<div class="card hero">
+			<span class="label">Debt free</span>
+			if p.DebtFree().IsZero() {
+				<strong>—</strong>
+			} else {
+				<strong>{ monthLong(p.DebtFree()) }</strong>
+			}
+			<span class="muted">{ itoa(p.MonthsLeft()) } payments to go</span>
+		</div>
+		<div class="card">
+			<span class="label">Paid so far</span>
+			<strong>{ p.PaidSoFar.String() }</strong>
+			<span class="muted">{ itoa(p.PaidCount) } of { itoa(len(p.Months)) } months done</span>
+		</div>
+		<div class="card">
+			<span class="label">Next payment</span>
+			if n := p.Next(); n != nil {
+				<strong>{ n.Paid.String() }</strong>
+				<span class="muted">Due in { monthLong(n.Month) }</span>
+			} else {
+				<strong>—</strong>
+				<span class="muted">All done</span>
+			}
+		</div>
+	</section>
+	<div class="progress">
+		<div class="progress-track"><div class="progress-fill" style={ widthPercent(progressPercent(p)) }></div></div>
+		<p class="muted">{ (p.StartTotal - p.Owed).String() } of { p.StartTotal.String() } paid off ({ itoa(progressPercent(p)) }%)</p>
+	</div>
+}
+
+templ monthRow(m service.PlanMonth, expandCurrent bool) {
+	<li class={ "month", templ.KV("is-next", m.Next), templ.KV("is-done", !m.Upcoming()) }>
+		<details class="month-details" open?={ m.Next && expandCurrent }>
+			<summary class="month-grid">
+				<span class="month-name">
+					<span class="chevron">
+						@components.Icon("caret-right")
+					</span>
+					<span>
+						<strong>{ monthShort(m.Month) }</strong>
+						<span class="muted">{ monthDetail(m, today()) }</span>
+					</span>
+				</span>
+				<span class="num strong">{ moneyOrDash(m.Paid, m.Status == debt.MonthSkipped) }</span>
+				<span class="num muted">{ m.Interest.String() }</span>
+				<span class="num muted">{ m.Left.String() }</span>
+				<span></span>
+			</summary>
+			<div class="month-debts">
+				if m.Extra > 0 {
+					<div class="month-extra">
+						<span>
+							<strong>One-time payment</strong>
+							<span class="muted">{ m.Extra.String() } on top of the regular payment</span>
+						</span>
+						if m.Upcoming() {
+							<form method="post" action={ planMonthURL(m.Month, "remove-extra") }>
+								<button type="submit" class="text-danger small">
+									@components.IconTrash()
+									Remove
+								</button>
+							</form>
+						}
+					</div>
+				}
+				for _, x := range m.Debts {
+					<div class="month-grid sub">
+						<span class="debt-cell">
+							<i class={ "dot", roleClass(x.Role) } aria-hidden="true"></i>
+							{ x.Name }
+						</span>
+						<span class="num strong">{ moneyOrDash(minimumPart(x), x.Role == debt.RoleSkipped) }</span>
+						<span class="num muted">{ x.Interest.String() }</span>
+						<span class="num muted">{ x.Left.String() }</span>
+						<span class="role-cell"><span class={ "role", roleClass(baseRole(x)) }>{ baseRole(x) }</span></span>
+					</div>
+					if x.Extra() > 0 && x.Role != debt.RoleSkipped {
+						<div class="month-grid sub extra-line">
+							<span class="debt-cell">
+								@components.Icon("arrow-elbow-down-right")
+								Extra to { x.Name }
+							</span>
+							<span class="num strong">{ "+" + x.Extra().String() }</span>
+							<span></span>
+							<span></span>
+							<span class="role-cell"><span class="role is-extra">Extra</span></span>
+						</div>
+					}
+				}
+			</div>
+		</details>
+		<div class="month-status">
+			@statusMenu(m)
+		</div>
+	</li>
+}
+
+templ statusMenu(m service.PlanMonth) {
+	<details class="status-menu">
+		<summary class={ "pill", statusClass(m) } aria-label={ monthLong(m.Month) + " payment: " + statusText(m) + ". Change" }>
+			{ statusText(m) }
+			@components.Icon("caret-down")
+		</summary>
+		<div class="menu">
+			switch  {
+				case m.Status == debt.MonthPaid:
+					@undoItem(m, "Remove Paid")
+					@menuOff("fast-forward", "Skip")
+					@menuOff("pencil-simple", "Edit payment")
+				case m.Status == debt.MonthSkipped:
+					@menuOff("check", "Paid")
+					@undoItem(m, "Remove Skip")
+					@menuOff("pencil-simple", "Edit payment")
+				default:
+					if m.Next {
+						<form method="post" action={ planMonthURL(m.Month, "paid") }>
+							<button type="submit" class="menu-item is-paid">
+								@components.IconCheck()
+								Paid
+							</button>
+						</form>
+						<form method="post" action={ planMonthURL(m.Month, "skip") }>
+							<button type="submit" class="menu-item is-skipped">
+								@components.Icon("fast-forward")
+								Skip
+							</button>
+						</form>
+					} else {
+						@menuOff("check", "Paid")
+						@menuOff("fast-forward", "Skip")
+					}
+					<a class="menu-item" href={ planMonthURL(m.Month, "edit") }>
+						@components.IconPencil()
+						Edit payment
+					</a>
+					if m.Edited {
+						<form method="post" action={ planMonthURL(m.Month, "edit") }>
+							<input type="hidden" name="reset" value="1"/>
+							<button type="submit" class="menu-item">Reset to plan</button>
+						</form>
+					}
+					if m.Extra > 0 {
+						<form method="post" action={ planMonthURL(m.Month, "remove-extra") }>
+							<button type="submit" class="menu-item is-danger">
+								@components.IconTrash()
+								Remove one-time payment
+							</button>
+						</form>
+					}
+					if !m.Next {
+						<p class="menu-note">Pay or skip the current month first.</p>
+					}
+			}
+		</div>
+	</details>
+}
+
+// undoItem is "Remove Paid" / "Remove Skip". Only the latest marked month
+// can be taken back; earlier ones show it greyed out.
+templ undoItem(m service.PlanMonth, label string) {
+	if m.CanUndo {
+		<form method="post" action={ planMonthURL(m.Month, "undo") }>
+			<button type="submit" class="menu-item">
+				@components.Icon("arrow-counter-clockwise")
+				{ label }
+			</button>
+		</form>
+	} else {
+		@menuOff("arrow-counter-clockwise", label)
+		<p class="menu-note">Remove later months first to change this one.</p>
+	}
+}
+
+// menuOff is a menu item that can't be used for this month.
+templ menuOff(icon, label string) {
+	<button type="button" class="menu-item" disabled>
+		@components.Icon(icon)
+		{ label }
+	</button>
+}
+
+templ setupForm(s SetupForm, inDialog bool) {
+	<form method="post" action="/plan/setup" class={ templ.KV("panel setup-panel", !inDialog) }>
+		if inDialog {
+			<div class="modal-head">
+				<div>
+					<h2 id="setup-title">Plan setup</h2>
+					<p class="muted">Months you've already marked stay as they are. Changes apply from the next unpaid month.</p>
+				</div>
+				<a class="icon-button ghost" href="/" aria-label="Close">
+					@components.IconX()
+				</a>
+			</div>
+		}
+		<div class={ "form-stack", templ.KV("modal-body", inDialog) }>
+			@components.Alerts(s.Error, "")
+			@planTypeFields("setup", s)
+			<div class="field">
+				<label for="setup-start">First month</label>
+				<select id="setup-start" name="start" disabled?={ s.Locked }>
+					for _, o := range s.Months {
+						<option value={ o.Value } selected?={ o.Value == s.Start }>{ o.Label }</option>
+					}
+				</select>
+				if s.Locked {
+					<input type="hidden" name="start" value={ s.Start }/>
+					<span class="muted field-hint">The first month can't change once you've marked a month.</span>
+				}
+			</div>
+		</div>
+		<div class={ templ.KV("modal-foot", inDialog), templ.KV("row setup-actions", !inDialog) }>
+			if inDialog {
+				<a class="button secondary" href="/">Cancel</a>
+				<button type="submit">Save plan</button>
+			} else {
+				<button type="submit">Start my plan</button>
+			}
+		</div>
+	</form>
+}
+
+templ editMonthDialog(e EditForm) {
+	@components.Modal("edit-pay-title", "dialog", "", "/") {
+		<form id="edit-pay-form" method="post" action={ planMonthURL(e.Month, "edit") } data-plan={ itoa(int(e.Plan)) }>
+			<div class="modal-head">
+				<div>
+					<h2 id="edit-pay-title">{ monthLong(e.Month) } payment</h2>
+					<p class="muted">Choose what each account gets this month.</p>
+				</div>
+				<a class="icon-button ghost" href="/" aria-label="Close">
+					@components.IconX()
+				</a>
+			</div>
+			<div class="modal-body edit-body">
+				@components.Alerts(e.Error, "")
+				<div class="edit-summary" aria-live="polite">
+					<div class="edit-summary-row">
+						<div>
+							<span class="stat-label">Total this month</span>
+							<strong class="edit-total" data-edit-total>{ e.Total().String() }</strong>
+						</div>
+						<span class="muted edit-split" data-edit-split>{ e.MinTotal().String() } minimums + { e.ExtraTotal().String() } extra</span>
+					</div>
+					<p class={ "plan-status", planStatusClass(e) } data-plan-status>{ planStatusText(e) }</p>
+					if e.Extra > 0 {
+						<p class="muted edit-onetime">Plus the { e.Extra.String() } one-time payment already added to this month.</p>
+					}
+				</div>
+				<div class="edit-rows">
+					for _, r := range e.Rows {
+						<fieldset class="edit-row" data-min={ itoa(int(r.Minimum)) }>
+							<input type="hidden" name="debt_id" value={ fmt.Sprint(r.DebtID) }/>
+							<legend class="sr">{ r.Name }</legend>
+							<div class="edit-name" aria-hidden="true">
+								<strong>{ r.Name }</strong>
+								<span class="muted">
+									Minimum { r.Minimum.String() } · pays <b class={ templ.KV("is-extra", r.WithExtra) } data-pays>{ r.rowTotal().String() }</b>
+								</span>
+							</div>
+							<div class="edit-controls">
+								<div class="segmented">
+									<label>
+										<input type="radio" name={ choiceName(r) } value="min" checked?={ !r.WithExtra }/>
+										Minimum
+									</label>
+									<label>
+										<input type="radio" name={ choiceName(r) } value="extra" checked?={ r.WithExtra }/>
+										Min + extra
+									</label>
+								</div>
+								<div class="edit-extra">
+									@components.MoneyInput(components.MoneyField{Name: extraName(r), Value: r.Extra, Short: true, Invalid: r.Error != "", Attrs: templ.Attributes{"aria-label": "Extra for " + r.Name, "data-extra": true}})
+								</div>
+							</div>
+							if r.Error != "" {
+								<span class="field-error row-error" role="alert">{ r.Error }</span>
+							}
+						</fieldset>
+					}
+				</div>
+				<p class="muted field-hint edit-note">If an account gets more than it owes, the rest goes to the debt your plan pays down first.</p>
+			</div>
+			<div class="modal-foot spread">
+				<button type="submit" name="reset" value="1" class="text-button">Reset to plan</button>
+				<div class="row">
+					<a class="button secondary" href="/">Cancel</a>
+					<button type="submit">Save payment</button>
+				</div>
+			</div>
+		</form>
+		<script>
+			// Keep the total, split, plan comparison and each "pays" current.
+			(function () {
+				var form = document.getElementById("edit-pay-form");
+				if (!form) { return; }
+				var plan = parseInt(form.dataset.plan, 10) || 0;
+				var fmt = function (c) { return (c / 100).toLocaleString("en-US", { style: "currency", currency: "USD" }); };
+				var total = form.querySelector("[data-edit-total]");
+				var split = form.querySelector("[data-edit-split]");
+				var status = form.querySelector("[data-plan-status]");
+				function update() {
+					var mins = 0, extra = 0;
+					form.querySelectorAll(".edit-row").forEach(function (row) {
+						var min = parseInt(row.dataset.min, 10) || 0, add = 0;
+						var choice = row.querySelector('input[type="radio"][value="extra"]');
+						if (choice && choice.checked) {
+							var v = parseFloat((row.querySelector("[data-extra]").value || "").replace(/[$,\s]/g, ""));
+							if (v > 0) { add = Math.round(v * 100); }
+						}
+						mins += min; extra += add;
+						var pays = row.querySelector("[data-pays]");
+						pays.textContent = fmt(min + add);
+						pays.classList.toggle("is-extra", add > 0 || (choice && choice.checked));
+					});
+					var sum = mins + extra;
+					total.textContent = fmt(sum);
+					split.textContent = fmt(mins) + " minimums + " + fmt(extra) + " extra";
+					status.classList.remove("is-match", "is-more", "is-less");
+					if (sum === plan) {
+						status.classList.add("is-match");
+						status.textContent = "Matches your " + fmt(plan) + " plan.";
+					} else if (sum > plan) {
+						status.classList.add("is-more");
+						status.textContent = fmt(sum - plan) + " more than your " + fmt(plan) + " plan.";
+					} else {
+						status.classList.add("is-less");
+						status.textContent = fmt(plan - sum) + " less than your " + fmt(plan) + " plan.";
+					}
+				}
+				form.addEventListener("input", update);
+				form.addEventListener("change", update);
+				form.querySelectorAll('input[type="radio"][value="extra"]').forEach(function (r) {
+					r.addEventListener("change", function () { r.closest(".edit-row").querySelector("[data-extra]").focus(); });
+				});
+			})();
+		</script>
+	}
+}
+
+func firstNonEmpty(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
+}
+
+// planTypeFields is the plan Type (with custom order) and monthly amount,
+// shared by Plan setup and Settings. Fields show and hide in CSS.
+templ planTypeFields(prefix string, f SetupForm) {
+	{{ s, o, minTotal := f.Strategy, f.Order, f.MinTotal }}
+	<div class="plan-type form-stack">
+		<div class="field">
+			<label for={ prefix + "-type" }>Type</label>
+			<select id={ prefix + "-type" } name="strategy">
+				for _, t := range debt.PlanTypes {
+					<option value={ string(t) } selected?={ t == s || (t == debt.Avalanche && !s.Valid()) }>{ typeName(t) }</option>
+				}
+			</select>
+			<span class="muted field-hint type-hint" data-for="avalanche">Extra money goes to the highest interest rate first. Saves the most interest.</span>
+			<span class="muted field-hint type-hint" data-for="snowball">Extra money goes to the smallest balance first, for quick wins.</span>
+			<span class="muted field-hint type-hint" data-for="minimum">Pays only each debt's minimum ({ minTotal.String() }/mo). Useful as a baseline.</span>
+			<span class="muted field-hint type-hint" data-for="custom">Choose what to order your debts by and which end gets the extra money first.</span>
+		</div>
+		<div class="custom-fields">
+			<div class="field">
+				<label for={ prefix + "-order-by" }>Order by</label>
+				<select id={ prefix + "-order-by" } name="order_by">
+					<option value={ debt.OrderByInterest } selected?={ o.Normalize().By == debt.OrderByInterest }>Interest rate</option>
+					<option value={ debt.OrderByBalance } selected?={ o.Normalize().By == debt.OrderByBalance }>Balance</option>
+				</select>
+			</div>
+			<div class="field">
+				<label for={ prefix + "-order-first" }>Which first</label>
+				<select id={ prefix + "-order-first" } name="order_first">
+					<option value={ debt.OrderHighFirst } selected?={ o.Normalize().First == debt.OrderHighFirst }>Highest first</option>
+					<option value={ debt.OrderLowFirst } selected?={ o.Normalize().First == debt.OrderLowFirst }>Lowest first</option>
+				</select>
+			</div>
+		</div>
+		<fieldset class="field budget-field">
+			<legend class="sr">Monthly payment</legend>
+			<div class="label-text">Monthly payment</div>
+			if f.Note != "" {
+				<p class="pay-note">
+					@components.Icon("warning")
+					{ f.Note }
+				</p>
+			}
+			<div class="pay-choice">
+				<div class="segmented">
+					<label>
+						<input type="radio" name="pay" value="min" checked?={ f.Pay != "extra" }/>
+						Minimum
+					</label>
+					<label>
+						<input type="radio" name="pay" value="extra" checked?={ f.Pay == "extra" }/>
+						Min + extra
+					</label>
+				</div>
+				<div class="pay-extra">
+					@components.MoneyInput(components.MoneyField{ID: prefix + "-extra", Name: "extra", Value: f.Extra, Short: true, Attrs: templ.Attributes{"aria-label": "Extra each month"}})
+				</div>
+			</div>
+			<span class="muted field-hint">Your minimums add up to { minTotal.String() }/mo. Any extra goes on top and pays debts off faster.</span>
+		</fieldset>
+	</div>
+}

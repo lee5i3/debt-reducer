@@ -3,10 +3,10 @@ package handler
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/lee5i3/debt-reducer/internal/debt"
 	"github.com/lee5i3/debt-reducer/internal/service"
-	"github.com/lee5i3/debt-reducer/web/views"
 )
 
 // parseAmount reads the one-time payment amount. Empty means "not entered".
@@ -25,42 +25,13 @@ func parseAmount(r *http.Request) (debt.Money, error) {
 	return m, nil
 }
 
-// LumpSumPage shows where a one-time payment does the most good.
-//
-//	GET /lump-sum?amount=5000&strategy=&budget=&start=
+// LumpSumPage moved into Simulate; keep old links working.
 func (h *Handler) LumpSumPage(w http.ResponseWriter, r *http.Request) {
-	opts, optErr := planOptions(r)
-	if optErr != nil {
-		opts = service.Options{}
+	q := url.Values{"mode": {"one"}}
+	if a := r.URL.Query().Get("amount"); a != "" {
+		q.Set("amount", a)
 	}
-	amount, amtErr := parseAmount(r)
-
-	res, err := h.planner.LumpSum(r.Context(), amount, opts)
-	if res == nil {
-		h.render(w, r, statusFor(err), views.ErrorPage(h.userMessage(err)))
-		return
-	}
-
-	data := views.LumpSumData{
-		Debts:         res.Debts,
-		Amount:        r.URL.Query().Get("amount"),
-		Strategy:      res.Options.Strategy,
-		MonthlyBudget: res.Options.MonthlyBudget,
-		StartDate:     res.Options.StartDate,
-		Analysis:      res.Analysis,
-	}
-	for _, d := range res.Debts {
-		data.TotalBalance += d.Balance
-	}
-	switch {
-	case optErr != nil:
-		data.Error = optErr.Error()
-	case amtErr != nil:
-		data.Error = amtErr.Error()
-	case err != nil:
-		data.Error = h.userMessage(err)
-	}
-	h.render(w, r, http.StatusOK, views.LumpSum(data))
+	http.Redirect(w, r, "/simulate?"+q.Encode(), http.StatusMovedPermanently)
 }
 
 // APILumpSum handles GET /api/lump-sum?amount=&strategy=&budget=&start=.

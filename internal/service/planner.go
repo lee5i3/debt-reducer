@@ -11,13 +11,14 @@ import (
 type Options struct {
 	Strategy      debt.Strategy
 	MonthlyBudget debt.Money
+	Extra         debt.Money // on top of the minimums when MonthlyBudget is 0
 	StartDate     time.Time
 }
 
 // Result is everything needed to show a plan for the saved debts.
 type Result struct {
 	Debts        []debt.Debt
-	Options      Options    // the options actually used, after defaults
+	Options      Options // the options actually used, after defaults
 	MinimumTotal debt.Money
 	Plan         *debt.Plan
 	Comparison   []*debt.Plan
@@ -33,6 +34,9 @@ type Planner interface {
 	// LumpSum finds the best debt to put a one-time payment toward. The
 	// payment is made on opts.StartDate.
 	LumpSum(ctx context.Context, amount debt.Money, opts Options) (*LumpSumResult, error)
+	// PayoffAtMinimum returns how many months d takes to pay off with only
+	// its minimum payment. ok is false when the minimum doesn't cover interest.
+	PayoffAtMinimum(d debt.Debt) (months int, ok bool)
 }
 
 // LumpSumResult is a one-time payment analysis for the saved debts.
@@ -61,14 +65,20 @@ func (p *planner) Defaults(ctx context.Context) (Options, error) {
 	if !s.Strategy.Valid() {
 		s.Strategy = debt.Avalanche
 	}
-	return Options{Strategy: s.Strategy, MonthlyBudget: s.MonthlyBudget, StartDate: today()}, nil
+	return Options{Strategy: s.Strategy, MonthlyBudget: s.MonthlyBudget, Extra: s.Extra, StartDate: today()}, nil
 }
 
 // resolve loads the debts and fills unset options from saved settings.
 func (p *planner) resolve(ctx context.Context, opts Options) (debt.PlanRequest, Options, error) {
-	debts, err := p.debts.List(ctx)
+	all, err := p.debts.List(ctx)
 	if err != nil {
 		return debt.PlanRequest{}, opts, err
+	}
+	var debts []debt.Debt // paid-off (zero balance) and inactive debts are left out
+	for _, d := range all {
+		if d.Balance > 0 && !d.Inactive {
+			debts = append(debts, d)
+		}
 	}
 	def, err := p.Defaults(ctx)
 	if err != nil {
@@ -81,15 +91,20 @@ func (p *planner) resolve(ctx context.Context, opts Options) (debt.PlanRequest, 
 		opts.MonthlyBudget = def.MonthlyBudget
 	}
 	if opts.MonthlyBudget == 0 {
-		opts.MonthlyBudget = debt.MinimumTotal(debts)
+		opts.MonthlyBudget = debt.MinimumTotal(debts) + def.Extra
 	}
 	if opts.StartDate.IsZero() {
 		opts.StartDate = def.StartDate
+	}
+	set, err := p.debts.Settings(ctx)
+	if err != nil {
+		return debt.PlanRequest{}, opts, err
 	}
 	return debt.PlanRequest{
 		Debts:         debts,
 		MonthlyBudget: opts.MonthlyBudget,
 		Strategy:      opts.Strategy,
+		Order:         set.Order.Normalize(),
 		StartDate:     opts.StartDate,
 	}, opts, nil
 }
@@ -108,6 +123,14 @@ func (p *planner) LumpSum(ctx context.Context, amount debt.Money, opts Options) 
 	}
 	res.Analysis, err = p.calc.LumpSum(req, amount)
 	return res, err
+}
+
+func (p *planner) PayoffAtMinimum(d debt.Debt) (int, bool) {
+	plan, err := p.calc.Plan(debt.PlanRequest{Debts: []debt.Debt{d}, Strategy: debt.MinimumOnly, StartDate: today()})
+	if err != nil {
+		return 0, false
+	}
+	return plan.Months, true
 }
 
 func (p *planner) Build(ctx context.Context, opts Options) (*Result, error) {

@@ -1,0 +1,161 @@
+package pages
+
+import "github.com/lee5i3/debt-reducer/web/views/components"
+
+templ SimulatePage(d SimData) {
+	@components.Layout(d.Shell, "Simulate · Debt Reducer") {
+		<div class="page-head">
+			<h1>Simulate</h1>
+			<p class="muted">Try a change and see how it moves your plan. Nothing is saved until you add it to the plan.</p>
+		</div>
+		if d.Empty {
+			<div class="empty">
+				<p>Add your debts first, then come back to try changes.</p>
+				<a class="button" href="/debts/new">Add your first debt</a>
+			</div>
+		} else {
+			<nav class="tabs" aria-label="What to try">
+				<a href={ simTabURL("one") } aria-current={ components.Current(d.Mode == "one") }>One-time payment</a>
+				<a href={ simTabURL("monthly") } aria-current={ components.Current(d.Mode == "monthly") }>Increase monthly payment</a>
+			</nav>
+			<form class="controls sim-controls" method="get" action="/simulate">
+				<input type="hidden" name="mode" value={ d.Mode }/>
+				<div class="field">
+					<label for="sim-amount">
+						if d.Mode == "one" {
+							One-time amount
+						} else {
+							Extra each month
+						}
+					</label>
+					@components.MoneyInput(components.MoneyField{ID: "sim-amount", Name: "amount", Value: d.Amount, Short: true})
+				</div>
+				<div class="field">
+					<label for="sim-month">
+						if d.Mode == "one" {
+							Pay it in
+						} else {
+							Starting
+						}
+					</label>
+					<select id="sim-month" name="month">
+						for _, o := range d.Months {
+							<option value={ o.Value } selected?={ o.Value == d.Month }>{ o.Label }</option>
+						}
+					</select>
+				</div>
+				<button type="submit">Show the impact</button>
+				<p class="muted sim-note">{ d.Note }</p>
+			</form>
+			@components.Alerts(d.Error, "")
+			if d.Error == "" {
+				<section class="cards">
+					<div class="card">
+						<span class="label">Current plan</span>
+						<strong>Debt free { monthLong(d.Base.DebtFree) }</strong>
+						<span class="muted">{ itoa(d.Base.Months) } payments · { d.Base.Interest.String() } interest</span>
+					</div>
+					<div class="card hero is-accent">
+						<span class="label">With this change</span>
+						<strong>Debt free { monthLong(d.Changed.DebtFree) }</strong>
+						<span class="muted">{ itoa(d.Changed.Months) } payments · { d.Changed.Interest.String() } interest</span>
+					</div>
+					<div class="card good is-success">
+						<span class="label">You save</span>
+						<strong>{ d.Saved.String() } in interest</strong>
+						<span class="muted">
+							if d.Sooner > 0 {
+								Debt free { itoa(d.Sooner) } { plural(d.Sooner, "month", "months") } sooner
+							} else {
+								Same payoff month
+							}
+						</span>
+					</div>
+				</section>
+				if len(d.Allocs) > 0 {
+					<section class="panel alloc-panel" aria-labelledby="alloc-title">
+						<h2 id="alloc-title">Where your { d.AllocAmount.String() } goes in { monthLong(d.AllocMonth) }</h2>
+						<ul class="alloc-list">
+							for _, a := range d.Allocs {
+								<li>
+									<span class="alloc-name">
+										<span class="debt-icon small">
+											@components.IconCard()
+										</span>
+										<span>
+											<strong>{ a.Name }</strong>
+											if a.PaysOff {
+												<span class="role is-paid">Paid off</span>
+											} else {
+												<span class="muted">{ a.Left.String() } left after this payment</span>
+											}
+										</span>
+									</span>
+									<strong class="alloc-amount">{ a.Amount.String() }</strong>
+								</li>
+							}
+						</ul>
+					</section>
+				}
+				if d.Tip != "" {
+					<p class="muted sim-tip">{ d.Tip }</p>
+				}
+				<div class="title-row sim-table-head">
+					<div>
+						<h2>Every payment until paid off</h2>
+						<p class="muted section-hint">Highlighted rows are where the change applies. "Current plan" shows what you'd still owe without it.</p>
+					</div>
+					if d.Set {
+						<form method="post" action="/simulate/apply">
+							<input type="hidden" name="mode" value={ d.Mode }/>
+							<input type="hidden" name="amount" value={ d.Amount }/>
+							<input type="hidden" name="month" value={ d.Month }/>
+							<button type="submit">Add to my plan</button>
+						</form>
+					} else {
+						<a class="button secondary" href="/">Set up your plan to add this</a>
+					}
+				</div>
+				<section>
+					<table>
+						<thead>
+							<tr>
+								<th>Month</th>
+								<th class="num">Payment</th>
+								<th class="num">Interest</th>
+								<th class="num">Still owed</th>
+								<th class="num">Current plan</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, r := range d.Rows {
+								<tr class={ templ.KV("selected", r.Applies) }>
+									<td>
+										<strong>{ monthShort(r.Month) }</strong>
+										if r.Note != "" {
+											<span class="muted cell-note">{ r.Note }</span>
+										}
+									</td>
+									<td class="num strong">{ r.Paid.String() }</td>
+									<td class="num muted">{ r.Interest.String() }</td>
+									<td class="num">{ r.Left.String() }</td>
+									<td class="num muted">{ r.BaseLeft.String() }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</section>
+				if d.Total > len(d.Rows) {
+					<a class="button secondary show-all" href={ simAllURL(d) }>Show all { itoa(d.Total) } payments</a>
+				}
+			}
+		}
+	}
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}

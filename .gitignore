@@ -7,3 +7,8 @@
 
 .playwright-mcp/
 .env
+
+# local working notes (CLAUDE.md is checked in)
+/MEMORY.md
+/RESTART.md
+/BACKLOG.md
