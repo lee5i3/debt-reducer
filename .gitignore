@@ -12,3 +12,6 @@
 /MEMORY.md
 /RESTART.md
 /BACKLOG.md
+
+# desktop app dependencies
+/desktop/node_modules/

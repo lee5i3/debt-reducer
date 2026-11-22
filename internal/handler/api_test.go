@@ -281,6 +281,7 @@ func TestAPILumpSum(t *testing.T) {
 
 func TestLumpSumPageRedirect(t *testing.T) {
 	e := newEnv(t)
+	e.addDebt("Visa", 4500, 120, 24.99)
 	rec := e.get("/lump-sum?amount=500")
 	wantStatus(t, rec, http.StatusMovedPermanently)
 	if loc := rec.Header().Get("Location"); loc != "/simulate?amount=500&mode=one" {

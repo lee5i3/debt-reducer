@@ -190,7 +190,7 @@ func TestSettingsDialog(t *testing.T) {
 }
 
 func TestLayout(t *testing.T) {
-	s := Shell{Active: "debts", Theme: debt.ThemeLight, NoticeSeconds: 10, DebtCount: 3, TotalOwed: 1234567,
+	s := Shell{Active: "debts", Theme: debt.ThemeLight, NoticeSeconds: 10, DebtCount: 3, ActiveDebts: 2, TotalOwed: 1234567,
 		DebtFree: time.Date(2029, time.July, 1, 0, 0, 0, 0, time.UTC), InterestPaid: 5000, InterestAhead: 20000, Here: "/debts"}
 	html := render(t, Layout(s, "Debts · Debt Reducer"))
 
@@ -217,11 +217,20 @@ func TestLayout(t *testing.T) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	if !strings.Contains(tag(html, `aria-label="Settings"`), `href="/debts?settings=1"`) {
-		t.Errorf("settings link = %q", tag(html, `aria-label="Settings"`))
+	if tag(html, `href="/debts?settings=1"`, "nav-item") == "" {
+		t.Error("sidebar should link to settings over the current page")
+	}
+	if strings.Contains(html, "topbar") || strings.Contains(html, `class="logo"`) {
+		t.Error("the top bar and logo are gone")
 	}
 	if strings.Contains(html, "settings-title") {
 		t.Error("settings dialog should be closed without Settings")
+	}
+	if !strings.Contains(html, `<footer class="app-footer">Debt Reducer (dev build)</footer>`) {
+		t.Error("missing name/version footer")
+	}
+	if strings.Contains(html, `aria-disabled="true"`) {
+		t.Error("plan and simulate should be links when there are active debts")
 	}
 
 	// Dark default, no debts, settings open, notices never close.
@@ -239,8 +248,8 @@ func TestLayout(t *testing.T) {
 	if !strings.Contains(html, `id="settings-title"`) {
 		t.Error("settings dialog should be open")
 	}
-	if !strings.Contains(tag(html, `aria-label="Settings"`), `aria-current="page"`) {
-		t.Error("settings button should be current while open")
+	if !strings.Contains(tag(html, `settings=1"`, "nav-item"), `aria-current="page"`) {
+		t.Error("settings link should be current while open")
 	}
 }
 
@@ -279,5 +288,20 @@ func TestIcons(t *testing.T) {
 		if got := render(t, n.c); got != want {
 			t.Errorf("%s icon = %q, want %q", n.name, got, want)
 		}
+	}
+}
+
+func TestLayoutWithoutActiveDebts(t *testing.T) {
+	html := render(t, Layout(Shell{Active: "debts", DebtCount: 1, Here: "/debts"}, "Debts"))
+	if strings.Contains(html, `href="/simulate"`) || strings.Contains(html, `class="nav-item" aria-current="false" href="/"`) {
+		t.Error("plan and simulate should not be links without active debts")
+	}
+	for _, want := range []string{`title="Add a debt to see your plan"`, `title="Add a debt to try changes"`} {
+		if !strings.Contains(tag(html, want), `aria-disabled="true"`) {
+			t.Errorf("%s should be disabled: %q", want, tag(html, want))
+		}
+	}
+	if !strings.Contains(tag(html, `href="/debts"`, "nav-item"), `aria-current="page"`) {
+		t.Error("debts nav should still be a current link")
 	}
 }

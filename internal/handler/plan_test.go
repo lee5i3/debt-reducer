@@ -27,13 +27,8 @@ func (e *env) setupPlan(extra float64) {
 
 func TestPlanPageBeforeSetup(t *testing.T) {
 	e := newEnv(t)
-	rec := e.get("/")
-	wantStatus(t, rec, http.StatusOK)
-	wantBody(t, rec, "<h1>Set up your plan</h1>", "Add your debts first")
-	wantNoBody(t, rec, `action="/plan/setup"`)
-
 	e.addDebt("Visa", 4500, 120, 24.99)
-	rec = e.get("/")
+	rec := e.get("/")
 	wantStatus(t, rec, http.StatusOK)
 	wantBody(t, rec, "<h1>Set up your plan</h1>", `action="/plan/setup"`)
 }
@@ -276,4 +271,46 @@ func TestPlanPageShowAll(t *testing.T) {
 	rec = e.get("/?all=1")
 	wantStatus(t, rec, http.StatusOK)
 	wantBody(t, rec, lastURL)
+}
+
+// With no active debts, Plan and Simulate send you to the debt list and the
+// sidebar greys them out.
+func TestNoActiveDebtsStartsOnDebtList(t *testing.T) {
+	e := newEnv(t)
+	for _, path := range []string{"/", "/simulate", "/plan/setup", "/lump-sum", "/plan/months/" + monthParam(thisMonth()) + "/edit"} {
+		rec := e.get(path)
+		wantStatus(t, rec, http.StatusSeeOther)
+		if loc := rec.Header().Get("Location"); loc != "/debts" {
+			t.Errorf("%s: Location = %s, want /debts", path, loc)
+		}
+	}
+	rec := e.postForm("/plan/setup", url.Values{"pay": {"min"}})
+	if loc := rec.Header().Get("Location"); loc != "/debts" {
+		t.Errorf("POST /plan/setup: Location = %s, want /debts", loc)
+	}
+	// The settings popup survives the redirect.
+	if loc := e.get("/settings").Header().Get("Location"); loc != "/?settings=1" {
+		t.Fatalf("/settings Location = %s", loc)
+	}
+	if loc := e.get("/?settings=1").Header().Get("Location"); loc != "/debts?settings=1" {
+		t.Errorf("/?settings=1 Location = %s, want /debts?settings=1", loc)
+	}
+
+	rec = e.get("/debts")
+	wantStatus(t, rec, http.StatusOK)
+	wantBody(t, rec, `aria-disabled="true" title="Add a debt to see your plan"`, `aria-disabled="true" title="Add a debt to try changes"`)
+	wantNoBody(t, rec, `href="/simulate"`)
+
+	// An inactive debt alone still leaves nothing to plan.
+	d := e.addDebt("Visa", 4500, 120, 24.99)
+	wantStatus(t, e.postForm("/debts/"+strconv.FormatInt(d.ID, 10)+"/active", url.Values{"active": {"0"}}), http.StatusSeeOther)
+	if loc := e.get("/").Header().Get("Location"); loc != "/debts" {
+		t.Errorf("inactive only: Location = %s, want /debts", loc)
+	}
+
+	wantStatus(t, e.postForm("/debts/"+strconv.FormatInt(d.ID, 10)+"/active", url.Values{"active": {"1"}}), http.StatusSeeOther)
+	wantStatus(t, e.get("/"), http.StatusOK)
+	rec = e.get("/debts")
+	wantBody(t, rec, `href="/simulate"`)
+	wantNoBody(t, rec, `aria-disabled="true"`)
 }

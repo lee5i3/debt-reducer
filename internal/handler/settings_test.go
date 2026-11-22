@@ -39,6 +39,7 @@ func TestSettingsDialogOnAnyPage(t *testing.T) {
 	wantBody(t, rec, "Those settings couldn", `name="back" value="/debts"`)
 
 	// Other pages open it too.
+	e.addDebt("Visa", 4500, 120, 24.99)
 	wantBody(t, e.get("/?settings=1"), `id="settings-title"`, `name="back" value="/"`)
 	wantBody(t, e.get("/simulate?settings=1"), `id="settings-title"`, `name="back" value="/simulate"`)
 }
@@ -124,6 +125,7 @@ func TestNoticeBanner(t *testing.T) {
 
 func TestPlanNoticeBanners(t *testing.T) {
 	e := newEnv(t)
+	e.addDebt("Visa", 4500, 120, 24.99)
 	m := monthParam(thisMonth())
 	label := thisMonth().Format("January 2006")
 	tests := map[string]string{
@@ -154,4 +156,24 @@ func TestHealthAndStatic(t *testing.T) {
 	}
 	wantStatus(t, e.get("/favicon.ico"), http.StatusNoContent)
 	wantStatus(t, e.get("/static/app.css"), http.StatusOK)
+	if cc := e.get("/static/app.css").Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("static Cache-Control = %q, want no-cache", cc)
+	}
+}
+
+// Settings shows where the data is saved. Changing it is desktop-only, so
+// its buttons start hidden and the browser gets a note about -db instead.
+func TestSettingsShowsDataLocation(t *testing.T) {
+	e := newEnv(t)
+	rec := e.get("/debts?settings=1")
+	wantStatus(t, rec, http.StatusOK)
+	wantBody(t, rec,
+		`id="settings-data" class="path-input" readonly value="/data/debts"`,
+		"Holds debt-reducer.db.",
+		`<code>-db</code>`,
+		`data-desktop="choose-data" hidden`,
+		`data-desktop="open-data" hidden`,
+		`href="#set-data"`, `href="#set-appearance"`, `href="#set-plan"`,
+		`id="settings-search"`,
+	)
 }

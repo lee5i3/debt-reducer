@@ -17,68 +17,59 @@ func card() debt.Debt {
 		MinimumPayment: cents(50), StartDate: time.Date(2026, time.November, 15, 0, 0, 0, 0, time.Local)}
 }
 
-func TestApplyMonth(t *testing.T) {
+// applyRecorded uses the payment, interest and minimum recorded for the
+// month, whatever the debt's APR or minimum is now.
+func TestApplyRecorded(t *testing.T) {
+	rec := func(interest, paid, minimum float64, role string) debt.MonthDebt {
+		return debt.MonthDebt{Interest: cents(interest), Paid: cents(paid), Minimum: cents(minimum), Role: role}
+	}
 	tests := []struct {
-		name    string
-		debt    func() debt.Debt
-		status  string
-		pay     debt.Money
-		role    string
-		want    debt.MonthDebt
-		wantBal debt.Money
+		name   string
+		debt   func() debt.Debt
+		status string
+		row    debt.MonthDebt
+		want   debt.MonthDebt
 	}{
 		{
-			name: "minimum payment", debt: card, status: debt.MonthPaid, pay: cents(50), role: debt.RoleMinimum,
+			name: "minimum payment", debt: card, status: debt.MonthPaid, row: rec(10, 50, 50, debt.RoleMinimum),
 			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: cents(50), Minimum: cents(50), Left: cents(960), Role: debt.RoleMinimum},
 		},
 		{
-			name: "minimum plus extra", debt: card, status: debt.MonthPaid, pay: cents(200), role: debt.RoleExtra,
+			name: "minimum plus extra", debt: card, status: debt.MonthPaid, row: rec(10, 200, 50, debt.RoleExtra),
 			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: cents(200), Minimum: cents(50), Left: cents(810), Role: debt.RoleExtra},
 		},
 		{
-			name: "less than the minimum", debt: card, status: debt.MonthPaid, pay: cents(20), role: debt.RoleMinimum,
-			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: cents(20), Minimum: cents(20), Left: cents(990), Role: debt.RoleMinimum},
-		},
-		{
-			name: "skipped adds interest and pays nothing", debt: card, status: debt.MonthSkipped, pay: cents(200), role: debt.RoleExtra,
+			name: "skipped adds interest and pays nothing", debt: card, status: debt.MonthSkipped, row: rec(10, 200, 50, debt.RoleSkipped),
 			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: 0, Minimum: 0, Left: cents(1010), Role: debt.RoleSkipped},
 		},
 		{
-			name: "payment clears the balance", debt: card, status: debt.MonthPaid, pay: cents(5000), role: debt.RoleExtra,
+			name: "exact payoff", debt: card, status: debt.MonthPaid, row: rec(10, 1010, 50, debt.RoleExtra),
 			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: cents(1010), Minimum: cents(50), Left: 0, Role: debt.RolePaidOff},
 		},
 		{
-			name: "exact payoff", debt: card, status: debt.MonthPaid, pay: cents(1010), role: debt.RoleMinimum,
-			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: cents(1010), Minimum: cents(50), Left: 0, Role: debt.RolePaidOff},
+			name: "more than is left (starting amount lowered) stops at zero", debt: card, status: debt.MonthPaid, row: rec(10, 1500, 50, debt.RolePaidOff),
+			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: cents(1500), Minimum: cents(50), Left: 0, Role: debt.RolePaidOff},
 		},
 		{
-			name: "recorded paid off that no longer clears", debt: card, status: debt.MonthPaid, pay: cents(500), role: debt.RolePaidOff,
+			name: "recorded paid off that no longer clears", debt: card, status: debt.MonthPaid, row: rec(10, 500, 50, debt.RolePaidOff),
 			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: cents(500), Minimum: cents(50), Left: cents(510), Role: debt.RoleExtra},
 		},
 		{
-			name: "zero balance pays nothing", debt: func() debt.Debt { d := card(); d.Balance = 0; return d },
-			status: debt.MonthPaid, pay: cents(50), role: debt.RoleMinimum,
-			want: debt.MonthDebt{Before: 0, Interest: 0, Paid: 0, Minimum: 0, Left: 0, Role: debt.RoleMinimum},
-		},
-		{
-			name: "zero apr", debt: func() debt.Debt { d := card(); d.APR = 0; return d },
-			status: debt.MonthPaid, pay: cents(50), role: debt.RoleMinimum,
-			want: debt.MonthDebt{Before: cents(1000), Interest: 0, Paid: cents(50), Minimum: cents(50), Left: cents(950), Role: debt.RoleMinimum},
+			name: "recorded interest stays after an APR change", debt: func() debt.Debt { d := card(); d.APR = 30; return d },
+			status: debt.MonthPaid, row: rec(10, 50, 50, debt.RoleMinimum),
+			want: debt.MonthDebt{Before: cents(1000), Interest: cents(10), Paid: cents(50), Minimum: cents(50), Left: cents(960), Role: debt.RoleMinimum},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := tt.debt()
-			got, row := applyMonth(d, tt.status, tt.pay, tt.role)
+			got, row := applyRecorded(d, tt.status, tt.row)
 			tt.want.DebtID, tt.want.Name = d.ID, d.Name
 			if row != tt.want {
 				t.Errorf("row = %+v\nwant  %+v", row, tt.want)
 			}
 			if got.Balance != tt.want.Left {
 				t.Errorf("balance = %s, want %s", got.Balance, tt.want.Left)
-			}
-			if wantExtra := max(tt.want.Paid-tt.want.Minimum, 0); row.Extra() != wantExtra {
-				t.Errorf("Extra() = %s, want %s", row.Extra(), wantExtra)
 			}
 		})
 	}
@@ -93,48 +84,42 @@ func promoAccount() debt.Debt {
 		}}
 }
 
-func TestApplyMonthPromos(t *testing.T) {
+func TestApplyRecordedPromos(t *testing.T) {
+	paid := func(interest, amount float64) debt.MonthDebt {
+		return debt.MonthDebt{Interest: cents(interest), Paid: cents(amount), Role: debt.RoleExtra}
+	}
 	t.Run("earliest expiring paid first", func(t *testing.T) {
-		d, _ := applyMonth(promoAccount(), debt.MonthPaid, cents(350), debt.RoleExtra)
+		d, _ := applyRecorded(promoAccount(), debt.MonthPaid, paid(0, 350))
 		if d.Promos[0].Remaining != 0 || d.Promos[1].Remaining != cents(150) || d.Balance != cents(150) {
 			t.Errorf("promos %+v balance %s, want 0/150 and $150", d.Promos, d.Balance)
 		}
 	})
 	t.Run("partial payment stays on the first purchase", func(t *testing.T) {
-		d, _ := applyMonth(promoAccount(), debt.MonthPaid, cents(100), debt.RoleExtra)
+		d, _ := applyRecorded(promoAccount(), debt.MonthPaid, paid(0, 100))
 		if d.Promos[0].Remaining != cents(200) || d.Promos[1].Remaining != cents(200) {
 			t.Errorf("promos %+v, want 200/200", d.Promos)
 		}
 	})
 	t.Run("paying it all clears every purchase", func(t *testing.T) {
-		d, row := applyMonth(promoAccount(), debt.MonthPaid, cents(900), debt.RoleExtra)
-		if d.Promos[0].Remaining != 0 || d.Promos[1].Remaining != 0 || row.Role != debt.RolePaidOff || row.Paid != cents(500) {
-			t.Errorf("promos %+v row %+v, want both cleared and paid off at $500", d.Promos, row)
+		d, row := applyRecorded(promoAccount(), debt.MonthPaid, paid(0, 500))
+		if d.Promos[0].Remaining != 0 || d.Promos[1].Remaining != 0 || row.Role != debt.RolePaidOff || d.Balance != 0 {
+			t.Errorf("promos %+v row %+v, want both cleared and paid off", d.Promos, row)
 		}
 	})
 	t.Run("interest goes on the last purchase", func(t *testing.T) {
-		p := promoAccount()
-		p.APR = 12 // $5 a month on $500
-		d, row := applyMonth(p, debt.MonthSkipped, cents(100), debt.RoleExtra)
-		if row.Interest != cents(5) {
-			t.Fatalf("interest = %s, want $5", row.Interest)
-		}
+		d, _ := applyRecorded(promoAccount(), debt.MonthSkipped, paid(5, 100))
 		if d.Promos[0].Remaining != cents(300) || d.Promos[1].Remaining != cents(205) || d.Balance != cents(505) {
 			t.Errorf("promos %+v balance %s, want 300/205 and $505", d.Promos, d.Balance)
 		}
 	})
 	t.Run("payment that only covers the interest leaves purchases alone", func(t *testing.T) {
-		p := promoAccount()
-		p.APR = 12
-		d, _ := applyMonth(p, debt.MonthPaid, cents(5), debt.RoleMinimum)
+		d, _ := applyRecorded(promoAccount(), debt.MonthPaid, paid(5, 5))
 		if d.Promos[0].Remaining != cents(300) || d.Promos[1].Remaining != cents(200) {
 			t.Errorf("promos %+v, want unchanged", d.Promos)
 		}
 	})
 	t.Run("interest is paid before principal", func(t *testing.T) {
-		p := promoAccount()
-		p.APR = 12
-		d, _ := applyMonth(p, debt.MonthPaid, cents(105), debt.RoleExtra)
+		d, _ := applyRecorded(promoAccount(), debt.MonthPaid, paid(5, 105))
 		if d.Promos[0].Remaining != cents(200) || d.Promos[1].Remaining != cents(200) {
 			t.Errorf("promos %+v, want 200/200", d.Promos)
 		}
@@ -194,67 +179,34 @@ func TestReplay(t *testing.T) {
 		}
 	})
 
-	t.Run("active debt missing from a month gets its minimum", func(t *testing.T) {
-		other := card()
-		other.ID, other.Name = 2, "Other"
-		marked := []debt.MonthRecord{{Month: nov, Status: debt.MonthPaid,
-			Debts: []debt.MonthDebt{{DebtID: 1, Paid: cents(50), Role: debt.RoleMinimum}}}}
-		left, hist := replay([]debt.Debt{card(), other}, marked)
-		if len(hist[0]) != 2 {
-			t.Fatalf("history = %+v, want a row for the missing debt", hist[0])
-		}
-		row := hist[0][1]
-		want := debt.MonthDebt{DebtID: 2, Name: "Other", Before: cents(1000), Interest: cents(10), Paid: cents(50), Minimum: cents(50), Left: cents(960), Role: debt.RoleMinimum}
-		if row != want {
-			t.Errorf("row = %+v\nwant  %+v", row, want)
-		}
-		if left[2].Balance != cents(960) {
-			t.Errorf("balance = %s, want $960", left[2].Balance)
-		}
-	})
-
-	t.Run("missing debt in a skipped month is skipped", func(t *testing.T) {
-		marked := []debt.MonthRecord{{Month: nov, Status: debt.MonthSkipped}}
-		left, hist := replay([]debt.Debt{card()}, marked)
-		if len(hist[0]) != 1 || hist[0][0].Role != debt.RoleSkipped || left[1].Balance != cents(1010) {
-			t.Errorf("history %+v balance %s, want skipped and $1,010", hist[0], left[1].Balance)
-		}
-	})
-
+	// Marked months are history: a debt that wasn't in one (inactive then,
+	// reactivated or added later) is never added to it.
 	for _, tt := range []struct {
 		name   string
 		modify func(d *debt.Debt)
 	}{
+		{"active", func(d *debt.Debt) {}},
 		{"inactive", func(d *debt.Debt) { d.Inactive = true }},
-		{"before its start month", func(d *debt.Debt) { d.StartDate = time.Date(2026, time.December, 1, 0, 0, 0, 0, time.Local) }},
-		{"already zero", func(d *debt.Debt) { d.Balance = 0 }},
 	} {
-		t.Run("missing debt not charged when "+tt.name, func(t *testing.T) {
-			d := card()
-			tt.modify(&d)
-			left, hist := replay([]debt.Debt{d}, []debt.MonthRecord{{Month: nov, Status: debt.MonthPaid}})
-			if len(hist[0]) != 0 {
-				t.Errorf("history = %+v, want no row", hist[0])
+		t.Run(tt.name+" debt not marked in a month is left out of it", func(t *testing.T) {
+			other := card()
+			other.ID, other.Name = 2, "Other"
+			tt.modify(&other)
+			marked := []debt.MonthRecord{
+				{Month: nov, Status: debt.MonthPaid, Debts: []debt.MonthDebt{{DebtID: 1, Interest: cents(10), Paid: cents(50), Role: debt.RoleMinimum}}},
+				{Month: dec, Status: debt.MonthSkipped, Debts: []debt.MonthDebt{{DebtID: 1, Interest: cents(9.60), Role: debt.RoleSkipped}}},
 			}
-			if left[1].Balance != d.Balance {
-				t.Errorf("balance = %s, want unchanged %s", left[1].Balance, d.Balance)
+			left, hist := replay([]debt.Debt{card(), other}, marked)
+			for i := range marked {
+				if len(hist[i]) != 1 || hist[i][0].DebtID != 1 {
+					t.Errorf("month %d rows = %+v, want only the marked debt", i, hist[i])
+				}
+			}
+			if left[2].Balance != cents(1000) {
+				t.Errorf("unmarked debt balance = %s, want its $1,000 untouched", left[2].Balance)
 			}
 		})
 	}
-
-	t.Run("missing debt stops once paid off", func(t *testing.T) {
-		d := card()
-		d.Balance = cents(60) // Nov: 60.60 - 50 = 10.60; Dec: 10.71 paid off; Jan: nothing
-		left, hist := replay([]debt.Debt{d}, []debt.MonthRecord{
-			{Month: nov, Status: debt.MonthPaid}, {Month: dec, Status: debt.MonthPaid}, {Month: jan, Status: debt.MonthPaid},
-		})
-		if len(hist[0]) != 1 || len(hist[1]) != 1 || len(hist[2]) != 0 {
-			t.Fatalf("rows per month = %d/%d/%d, want 1/1/0", len(hist[0]), len(hist[1]), len(hist[2]))
-		}
-		if hist[1][0].Role != debt.RolePaidOff || left[1].Balance != 0 {
-			t.Errorf("December %+v balance %s, want paid off", hist[1][0], left[1].Balance)
-		}
-	})
 
 	t.Run("input promos are not changed", func(t *testing.T) {
 		p := promoAccount()
@@ -322,23 +274,5 @@ func TestReplayKeepsMarkedMonthsWhenDebtIsEdited(t *testing.T) {
 	left, hist = replay([]debt.Debt{edited}, marked)
 	if hist[0][0].Paid != cents(100) || left[1].Balance != cents(1110) {
 		t.Errorf("after starting-amount fix: paid %s left %s, want $100.00 and $1,110.00", hist[0][0].Paid, left[1].Balance)
-	}
-}
-
-// A month filled in for a debt that wasn't marked in it (reactivated, or
-// added later) uses the debt's current minimum.
-func TestReplayFilledInMonthUsesCurrentMinimum(t *testing.T) {
-	nov := time.Date(2026, time.November, 1, 0, 0, 0, 0, time.Local)
-	d := debt.Debt{ID: 2, Name: "Store", Balance: cents(300), APR: 0, MinimumPayment: cents(35),
-		StartDate: time.Date(2026, time.October, 1, 0, 0, 0, 0, time.Local)}
-	marked := []debt.MonthRecord{{Month: nov, Status: debt.MonthPaid}}
-	_, hist := replay([]debt.Debt{d}, marked)
-	if hist[0][0].Paid != cents(35) {
-		t.Fatalf("filled-in paid = %s, want $35.00", hist[0][0].Paid)
-	}
-	d.MinimumPayment = cents(50)
-	_, hist = replay([]debt.Debt{d}, marked)
-	if hist[0][0].Paid != cents(50) {
-		t.Errorf("filled-in month should follow the current minimum, got %s", hist[0][0].Paid)
 	}
 }

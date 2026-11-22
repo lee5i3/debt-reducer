@@ -8,12 +8,12 @@ import (
 	"github.com/lee5i3/debt-reducer/internal/debt"
 )
 
-func TestSimulateEmpty(t *testing.T) {
+func TestSimulateBeforeSetup(t *testing.T) {
 	e := newEnv(t)
+	e.addDebt("Visa", 4500, 120, 24.99)
 	rec := e.get("/simulate")
 	wantStatus(t, rec, http.StatusOK)
 	wantBody(t, rec, "<h1>Simulate</h1>")
-	wantNoBody(t, rec, `action="/simulate/apply"`)
 }
 
 func TestSimulateOneTime(t *testing.T) {

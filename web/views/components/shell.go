@@ -3,6 +3,7 @@
 package components
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,9 @@ import (
 type Shell struct {
 	Active    string // "plan", "simulate", "debts" or "settings"
 	DebtCount int
+	// ActiveDebts counts the debts in the plan. With none, Plan and Simulate
+	// are greyed out in the sidebar.
+	ActiveDebts int
 	TotalOwed debt.Money
 	DebtFree  time.Time // zero when there is no plan
 	// InterestPaid and InterestAhead are the plan's interest so far and to come.
@@ -29,7 +33,18 @@ type Shell struct {
 	Settings *debt.Preferences
 	// SettingsError is shown in the settings popup.
 	SettingsError string
+	// DataFile is the database file's full path, shown under Data.
+	DataFile string
 }
+
+// DataFolder is the folder the database is in.
+func (s Shell) DataFolder() string { return filepath.Dir(s.DataFile) }
+
+// DataFileName is the database's file name.
+func (s Shell) DataFileName() string { return filepath.Base(s.DataFile) }
+
+// CanPlan reports whether there's anything for Plan and Simulate to show.
+func (s Shell) CanPlan() bool { return s.ActiveDebts > 0 }
 
 // SettingsURL opens the settings popup over the current page.
 func (s Shell) SettingsURL() string {

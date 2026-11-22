@@ -6,54 +6,112 @@ import (
 	"github.com/lee5i3/debt-reducer/internal/debt"
 )
 
-// SettingsDialog is the settings popup. It opens over any page (?settings=1)
-// and saves back to that page.
+// SettingsDialog is the settings popup, laid out like an editor's settings:
+// a search box, a section list and the settings themselves. It opens over
+// any page (?settings=1) and saves back to that page. Data > Location can
+// only be changed from the desktop app (see desktop/preload.js); the page
+// shows its buttons when that bridge is there.
 templ SettingsDialog(s Shell) {
-	@Modal("settings-title", "dialog", "", s.CloseURL()) {
-		<form method="post" action="/settings">
+	@Modal("settings-title", "dialog", "settings-modal", s.CloseURL()) {
+		<form method="post" action="/settings" class="settings-form">
 			<input type="hidden" name="back" value={ s.CloseURL() }/>
-			<div class="modal-head">
-				<div>
-					<h2 id="settings-title">Settings</h2>
-					<p class="muted">How the app looks. Your plan is set up on the Plan page.</p>
-				</div>
+			<div class="settings-head">
+				@Icon("sliders-horizontal")
+				<h2 id="settings-title">Settings</h2>
 				<a class="icon-button ghost" href={ templ.SafeURL(s.CloseURL()) } aria-label="Close">
 					@IconX()
 				</a>
 			</div>
-			<div class="modal-body stack">
-				@Alerts(s.SettingsError, "")
-				<fieldset class="field settings-field">
-					<legend class="sr">Theme</legend>
-					<div class="label-text">Theme</div>
-					<div class="segmented">
-						<label>
-							<input type="radio" name="theme" value="dark" checked?={ s.Settings.Theme != debt.ThemeLight }/>
-							@Icon("moon")
-							Dark
-						</label>
-						<label>
-							<input type="radio" name="theme" value="light" checked?={ s.Settings.Theme == debt.ThemeLight }/>
-							@Icon("sun")
-							Light
-						</label>
-					</div>
-				</fieldset>
-				<label class="check-row">
-					<input type="checkbox" name="expand_current" value="1" checked?={ s.Settings.ExpandCurrent }/>
-					<span>
-						<strong>Open the current month</strong>
-						<span class="muted">Show the current month's payments by default on the Plan page.</span>
-					</span>
-				</label>
-				<div class="field settings-field notice-field">
-					<label for="settings-notice" class="label-text">Close "saved" messages after</label>
-					<select id="settings-notice" name="notice_seconds" class="short-select">
-						for _, n := range debt.NoticeChoices {
-							<option value={ strconv.Itoa(n) } selected?={ n == s.Settings.NoticeSeconds }>{ noticeLabel(n) }</option>
-						}
-					</select>
-					<span class="muted field-hint">Error messages stay until you close them.</span>
+			<div class="settings-search">
+				<label for="settings-search" class="sr">Search settings</label>
+				@Icon("magnifying-glass")
+				<input type="search" id="settings-search" placeholder="Search settings" autocomplete="off" autofocus data-settings-search/>
+			</div>
+			<div class="settings-main">
+				<nav class="settings-nav" aria-label="Settings sections">
+					<a href="#set-data" aria-current="true">
+						@Icon("database")
+						Data
+					</a>
+					<a href="#set-appearance">
+						@Icon("palette")
+						Appearance
+					</a>
+					<a href="#set-plan">
+						@Icon("chart-line-down")
+						Plan
+					</a>
+				</nav>
+				<div class="settings-list" data-settings-list>
+					@Alerts(s.SettingsError, "")
+					<section id="set-data" class="settings-section" aria-labelledby="set-data-title">
+						<h3 id="set-data-title">Data</h3>
+						<div class="setting" data-setting>
+							<div class="setting-name"><span>Data: </span><strong>Location</strong></div>
+							<p class="setting-desc">
+								The folder your debts and plan are saved in.
+								<span data-desktop hidden>Changing it moves your data there and restarts the app.</span>
+							</p>
+							<div class="setting-control path-row">
+								<label for="settings-data" class="sr">Data folder</label>
+								<input id="settings-data" class="path-input" readonly value={ s.DataFolder() } data-data-folder/>
+								<button type="button" data-desktop="choose-data" hidden>Change folder</button>
+								<button type="button" class="button secondary" data-desktop="open-data" hidden>Open folder</button>
+							</div>
+							<p class="setting-note" data-data-file>Holds { s.DataFileName() }.</p>
+							<p class="setting-note" data-web>
+								To use another file, start the app with <code>-db</code> or <code>DEBT_REDUCER_DB</code>.
+							</p>
+							<p class="setting-note" data-desktop hidden>
+								Put it in a synced folder (Dropbox, OneDrive, iCloud Drive) to keep a backup.
+							</p>
+							<p class="setting-error" role="alert" data-data-error hidden></p>
+						</div>
+					</section>
+					<section id="set-appearance" class="settings-section" aria-labelledby="set-appearance-title">
+						<h3 id="set-appearance-title">Appearance</h3>
+						<div class="setting" data-setting role="radiogroup" aria-labelledby="set-theme-name">
+							<div class="setting-name" id="set-theme-name"><span>Appearance: </span><strong>Theme</strong></div>
+							<p class="setting-desc">Dark or light colors for the whole app.</p>
+							<div class="setting-control">
+								<div class="segmented">
+									<label>
+										<input type="radio" name="theme" value="dark" checked?={ s.Settings.Theme != debt.ThemeLight }/>
+										@Icon("moon")
+										Dark
+									</label>
+									<label>
+										<input type="radio" name="theme" value="light" checked?={ s.Settings.Theme == debt.ThemeLight }/>
+										@Icon("sun")
+										Light
+									</label>
+								</div>
+							</div>
+						</div>
+						<div class="setting" data-setting>
+							<label for="settings-notice" class="setting-name"><span>Appearance: </span><strong>Close "saved" messages after</strong></label>
+							<p class="setting-desc">How long a banner like "Visa added" stays up. Error banners stay until you close them.</p>
+							<div class="setting-control">
+								<select id="settings-notice" name="notice_seconds" class="short-select">
+									for _, n := range debt.NoticeChoices {
+										<option value={ strconv.Itoa(n) } selected?={ n == s.Settings.NoticeSeconds }>{ noticeLabel(n) }</option>
+									}
+								</select>
+							</div>
+						</div>
+					</section>
+					<section id="set-plan" class="settings-section" aria-labelledby="set-plan-title">
+						<h3 id="set-plan-title">Plan</h3>
+						<div class="setting" data-setting>
+							<div class="setting-name"><span>Plan: </span><strong>Open the current month</strong></div>
+							<label class="setting-check">
+								<input type="checkbox" name="expand_current" value="1" checked?={ s.Settings.ExpandCurrent }/>
+								<span>Show the current month's payments by default on the Plan page.</span>
+							</label>
+						</div>
+						<p class="setting-desc">Strategy and monthly payment are set up on the Plan page.</p>
+					</section>
+					<p class="muted settings-empty" data-settings-empty hidden>No settings match your search.</p>
 				</div>
 			</div>
 			<div class="modal-foot">

@@ -1,6 +1,10 @@
 package components
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/lee5i3/debt-reducer/internal/version"
+)
 
 templ Layout(s Shell, title string) {
 	<!DOCTYPE html>
@@ -17,21 +21,27 @@ templ Layout(s Shell, title string) {
 		<body data-notice-seconds={ strconv.Itoa(s.NoticeSeconds) }>
 			<div class="shell">
 				<aside class="sidebar">
-					<a class="brand" href="/">
-						<span class="logo">
-							@IconLogo()
-						</span>
-						Debt Reducer
-					</a>
+					<a class="brand" href="/">Debt Reducer</a>
 					<nav class="side-nav" aria-label="Main">
-						<a href="/" class="nav-item" aria-current={ Current(s.Active == "plan") }>
-							@IconPlan()
-							Plan
-						</a>
-						<a href="/simulate" class="nav-item" aria-current={ Current(s.Active == "simulate") }>
-							@IconBolt()
-							Simulate
-						</a>
+						if s.CanPlan() {
+							<a href="/" class="nav-item" aria-current={ Current(s.Active == "plan") }>
+								@IconPlan()
+								Plan
+							</a>
+							<a href="/simulate" class="nav-item" aria-current={ Current(s.Active == "simulate") }>
+								@IconBolt()
+								Simulate
+							</a>
+						} else {
+							<span class="nav-item" aria-disabled="true" title="Add a debt to see your plan">
+								@IconPlan()
+								Plan
+							</span>
+							<span class="nav-item" aria-disabled="true" title="Add a debt to try changes">
+								@IconBolt()
+								Simulate
+							</span>
+						}
 						<a href="/debts" class="nav-item" aria-current={ Current(s.Active == "debts") }>
 							<span class="nav-label">
 								@IconCard()
@@ -42,32 +52,31 @@ templ Layout(s Shell, title string) {
 							}
 						</a>
 					</nav>
-					if s.DebtCount > 0 {
-						<div class="side-summary">
-							<span class="muted">Total owed</span>
-							<strong>{ s.TotalOwed.String() }</strong>
-							if s.InterestPaid+s.InterestAhead > 0 {
-								<span class="side-interest" title={ s.InterestPaid.String() + " paid · " + s.InterestAhead.String() + " to come" }>
-									+ { s.InterestAhead.String() } interest to come
-								</span>
-								if s.InterestPaid > 0 {
-									<span class="muted">{ s.InterestPaid.String() } interest paid</span>
+					<div class="side-bottom">
+						if s.DebtCount > 0 {
+							<div class="side-summary">
+								<span class="muted">Total owed</span>
+								<strong>{ s.TotalOwed.String() }</strong>
+								if s.InterestPaid+s.InterestAhead > 0 {
+									<span class="side-interest" title={ s.InterestPaid.String() + " paid · " + s.InterestAhead.String() + " to come" }>
+										+ { s.InterestAhead.String() } interest to come
+									</span>
+									if s.InterestPaid > 0 {
+										<span class="muted">{ s.InterestPaid.String() } interest paid</span>
+									}
 								}
-							}
-							if !s.DebtFree.IsZero() {
-								<span class="muted">Debt free { s.DebtFree.Format("Jan 2006") }</span>
-							}
-						</div>
-					}
+								if !s.DebtFree.IsZero() {
+									<span class="muted">Debt free { s.DebtFree.Format("Jan 2006") }</span>
+								}
+							</div>
+						}
+						<a href={ templ.SafeURL(s.SettingsURL()) } class="nav-item" aria-current={ Current(s.Settings != nil) }>
+							@IconSettings()
+							Settings
+						</a>
+					</div>
 				</aside>
 				<div class="main-col">
-					<header class="topbar">
-						<div class="top-actions">
-							<a href={ templ.SafeURL(s.SettingsURL()) } class="icon-button ghost" aria-label="Settings" aria-current={ Current(s.Settings != nil) }>
-								@IconSettings()
-							</a>
-						</div>
-					</header>
 					<main class="content">
 						{ children... }
 						if s.Settings != nil {
@@ -76,6 +85,7 @@ templ Layout(s Shell, title string) {
 					</main>
 				</div>
 			</div>
+			<footer class="app-footer">{ version.String() }</footer>
 			<script>
 				// Turn server-rendered dialogs into real modals: focus is trapped,
 				// and Escape or a click on the backdrop goes back to the list.
@@ -157,6 +167,80 @@ templ Layout(s Shell, title string) {
 					var open = document.querySelector("details.status-menu[open]");
 					if (open) { open.open = false; open.querySelector("summary").focus(); }
 				});
+				// Settings popup: one section at a time, picked in the section list.
+				// Search looks across all sections and shows what matches; clearing
+				// it goes back to the picked section. In the desktop app the Data
+				// buttons talk to it through window.debtReducer (preload.js).
+				(function () {
+					var list = document.querySelector("[data-settings-list]");
+					if (!list) { return; }
+					var search = document.querySelector("[data-settings-search]");
+					var nav = document.querySelectorAll(".settings-nav a");
+					var sections = list.querySelectorAll(".settings-section");
+					var empty = list.querySelector("[data-settings-empty]");
+					var current = "set-data";
+					function showSection(id) {
+						current = id;
+						sections.forEach(function (sec) {
+							sec.hidden = sec.id !== id;
+							sec.querySelectorAll("[data-setting]").forEach(function (el) { el.hidden = false; });
+						});
+						nav.forEach(function (a) { a.setAttribute("aria-current", a.getAttribute("href") === "#" + id ? "true" : "false"); });
+						empty.hidden = true;
+						list.scrollTop = 0;
+					}
+					function filter(q) {
+						var any = false;
+						sections.forEach(function (sec) {
+							var shown = 0;
+							sec.querySelectorAll("[data-setting]").forEach(function (el) {
+								var hit = el.textContent.toLowerCase().indexOf(q) >= 0;
+								el.hidden = !hit;
+								if (hit) { shown++; }
+							});
+							sec.hidden = shown === 0;
+							if (shown) { any = true; }
+						});
+						nav.forEach(function (a) { a.setAttribute("aria-current", "false"); });
+						empty.hidden = any;
+					}
+					search.addEventListener("input", function () {
+						var q = search.value.trim().toLowerCase();
+						if (q) { filter(q); } else { showSection(current); }
+					});
+					// Escape in a non-empty search clears it instead of closing.
+					search.addEventListener("keydown", function (e) {
+						if (e.key === "Escape" && search.value) {
+							e.preventDefault(); e.stopPropagation();
+							search.value = ""; showSection(current);
+						}
+					});
+					nav.forEach(function (a) {
+						a.addEventListener("click", function (e) {
+							e.preventDefault();
+							search.value = "";
+							showSection(a.getAttribute("href").slice(1));
+						});
+					});
+					showSection(current);
+
+					var desk = window.debtReducer;
+					if (!desk) { return; }
+					list.querySelectorAll("[data-desktop]").forEach(function (el) { el.hidden = false; });
+					list.querySelectorAll("[data-web]").forEach(function (el) { el.hidden = true; });
+					var err = list.querySelector("[data-data-error]");
+					function show(res) {
+						err.hidden = !(res && res.error);
+						err.textContent = (res && res.error) || "";
+					}
+					list.querySelector('[data-desktop="choose-data"]').addEventListener("click", function () {
+						err.hidden = true;
+						desk.chooseDataFolder().then(show, function () { show({ error: "The data folder couldn't be changed." }); });
+					});
+					list.querySelector('[data-desktop="open-data"]').addEventListener("click", function () {
+						desk.openDataFolder().then(show);
+					});
+				})();
 			</script>
 		</body>
 	</html>

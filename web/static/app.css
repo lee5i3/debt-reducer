@@ -1,6 +1,7 @@
 /* Dark theme (default), matching the "Sidebar, dark" menu design.
    The light theme below swaps the same tokens. */
 :root {
+  --footer-h: 28px;
   color-scheme: dark;
   --bg: #0f1318;
   --surface: #171c23;
@@ -37,42 +38,44 @@
 
 /* Light theme: same layout and roles, lighter surfaces. */
 :root[data-theme="light"] {
+  /* Softer than white: grey surfaces so the light theme isn't glaring. */
   color-scheme: light;
-  --bg: #f3f5f8;
-  --surface: #ffffff;
-  --raised: #e8ecf1;
-  --text: #18202a;
-  --soft: #3f4a58;
-  --muted: #5d6877;
-  --border: #dce1e8;
-  --accent: #2d6ae0;
-  --accent-hover: #1d52b5;
+  --bg: #d3d8df;
+  --surface: #e1e5ea;
+  --raised: #c8cfd8;
+  --text: #161d26;
+  --soft: #313b48;
+  --muted: #4a5462;
+  --border: #b9c1cc;
+  --accent: #1f4cab;
+  --accent-hover: #1a4497;
   --on-accent: #ffffff;
-  --good: #16935a;
-  --bad: #d23f2f;
-  --error: #b8322a;
-  --field-border: #c6cdd7;
-  --success-bg: #e5f5ec;
-  --success-border: #a3d8bb;
-  --success-text: #136f43;
-  --interest: #a95a0b;
-  --field-bg: #f7f9fb;
-  --row-border: #e7ebf0;
-  --dot: #a3acb8;
-  --warn: #8a5a00;
-  --warn-bg: #fff3d9;
-  --warn-border: #ecd08f;
-  --danger-border: #ecb3ac;
+  --good: #0b5f3c;
+  --bad: #962a22;
+  --error: #9e2b24;
+  --field-border: #a7b0bc;
+  --success-bg: #cbe0d3;
+  --success-border: #8fc2a6;
+  --success-text: #0e5a37;
+  --interest: #7a3f06;
+  --field-bg: #e8ebef;
+  --row-border: #cad0d8;
+  --dot: #8a94a1;
+  --warn: #6f4700;
+  --warn-bg: #eadbb7;
+  --warn-border: #cfb06a;
+  --danger-border: #d39a92;
   --on-danger: #ffffff;
-  --danger-hover: #93261f;
-  --hover: rgba(15, 25, 40, 0.035);
-  --shadow: rgba(20, 30, 45, 0.16);
-  --backdrop: rgba(20, 26, 36, 0.45);
+  --danger-hover: #82221c;
+  --hover: rgba(15, 25, 40, 0.05);
+  --shadow: rgba(20, 30, 45, 0.18);
+  --backdrop: rgba(20, 26, 36, 0.5);
 }
 
 * { box-sizing: border-box; }
 body {
   margin: 0;
+  min-height: 100vh; display: flex; flex-direction: column;
   background: var(--bg);
   color: var(--text);
   font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -85,45 +88,45 @@ a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-hover); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* ---------- App shell: sidebar + top bar ---------- */
+/* ---------- App shell: sidebar + content ---------- */
 
-.shell { display: flex; flex-wrap: wrap; min-height: 100vh; }
+.shell { display: flex; flex-wrap: wrap; flex: 1 0 auto; }
 
 .sidebar {
-  flex: 1 1 232px; max-width: 100%;
-  display: flex; flex-direction: column; gap: 24px;
-  padding: 20px 14px;
+  flex: 1 1 196px; max-width: 100%;
+  display: flex; flex-direction: column; gap: 18px;
+  padding: 18px 10px 12px;
   background: var(--surface); border-right: 1px solid var(--border);
 }
 @media (min-width: 641px) {
   /* Keep the sidebar (and its summary) in view on long pages. */
-  .sidebar { position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  .sidebar { position: sticky; top: 0; height: calc(100vh - var(--footer-h)); overflow-y: auto; }
+  /* The footer stays along the bottom of the window, under the sidebar too. */
+  .app-footer { position: sticky; bottom: 0; }
 }
-.brand { display: flex; align-items: center; gap: 10px; padding: 0 8px; color: var(--text); font-size: 17px; font-weight: 700; }
+.brand { padding: 0 10px; color: var(--text); font-size: 16px; font-weight: 700; }
 .brand:hover { color: var(--text); }
-.logo {
-  display: flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 8px;
-  background: var(--accent); color: var(--on-accent);
-}
 
 .side-nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  min-height: 44px; padding: 0 10px; border-radius: 8px;
-  color: var(--soft);
+  min-height: 40px; padding: 0 10px; border-radius: 8px;
+  color: var(--soft); font-size: 14px;
 }
 .nav-item > .icon { flex: none; }
 .nav-item:has(> .icon) { justify-content: flex-start; }
 .nav-item:hover { color: var(--text); background: color-mix(in srgb, var(--raised) 60%, transparent); }
 .nav-item[aria-current="page"] { background: var(--selected); color: var(--accent); font-weight: 600; }
+.nav-item[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+.nav-item[aria-disabled="true"]:hover { color: var(--soft); background: none; }
 .nav-label { display: flex; align-items: center; gap: 10px; }
 .badge { font-size: 12px; font-weight: 600; color: var(--soft); background: var(--raised); border-radius: 99px; padding: 1px 8px; }
 
+/* Summary and Settings sit at the bottom of the sidebar. */
+.side-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
 .side-summary {
-  margin-top: auto;
   display: flex; flex-direction: column; gap: 2px;
-  padding: 14px; border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px; border: 1px solid var(--border); border-radius: 10px;
 }
 .side-summary .muted { font-size: 13px; }
 .side-summary .muted:first-child { font-size: 12px; }
@@ -131,11 +134,6 @@ a:hover { color: var(--accent-hover); }
 
 .main-col { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; }
 
-.topbar {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 16px;
-  padding: 8px 32px;
-  background: var(--surface); border-bottom: 1px solid var(--border);
-}
 .search {
   flex: 1 1 220px; max-width: 360px;
   display: flex; align-items: center; gap: 8px;
@@ -149,7 +147,6 @@ a:hover { color: var(--accent-hover); }
   background: transparent; border: 0; border-radius: 0; color: var(--text); font-size: 14px;
 }
 .search input:focus-visible { outline: none; }
-.top-actions { display: flex; align-items: center; gap: 8px; }
 
 .icon-button {
   display: flex; align-items: center; justify-content: center; flex: none;
@@ -162,14 +159,21 @@ a:hover { color: var(--accent-hover); }
 .icon-button.ghost[aria-current="page"] { background: var(--selected); color: var(--accent); }
 .icon-button.danger { color: var(--error); }
 
-.content { padding: 4px 32px 48px; max-width: 1180px; width: 100%; margin: 0 auto; }
+.content { padding: 8px 32px 48px; max-width: 1180px; width: 100%; margin: 0 auto; }
+.app-footer {
+  box-sizing: border-box; height: var(--footer-h);
+  display: flex; align-items: center; justify-content: flex-end; padding: 0 20px;
+  background: var(--surface); border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12px;
+}
 
 @media (max-width: 640px) {
   .sidebar { border-right: 0; border-bottom: 1px solid var(--border); gap: 16px; }
   .side-nav { flex-direction: row; flex-wrap: wrap; }
   .nav-item { flex: 1 1 auto; }
   .side-summary { display: none; }
-  .topbar, .content { padding-left: 16px; padding-right: 16px; }
+  .content { padding-left: 16px; padding-right: 16px; }
+  .side-bottom { margin-top: 0; }
 }
 
 /* ---------- Page content ---------- */
@@ -181,6 +185,9 @@ a:hover { color: var(--accent-hover); }
 .list-search { margin-top: 20px; }
 
 h2 { font-size: 17px; margin: 32px 0 12px; }
+
+/* The hidden attribute always wins over a display set elsewhere. */
+[hidden] { display: none !important; }
 
 label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--soft); }
 input, select, button, .button {
@@ -660,7 +667,6 @@ button.text-button:hover { background: var(--raised); color: var(--text); border
 
 /* Phosphor icons (font). Sized per context to match the text around them. */
 .icon { flex: none; font-size: 18px; line-height: 1; }
-.logo .icon { font-size: 19px; }
 .icon-button .icon { font-size: 20px; }
 button .icon, .button .icon, .menu-item .icon, .text-danger .icon { font-size: 17px; }
 .pill .icon { font-size: 14px; }
@@ -687,11 +693,55 @@ label.show-hidden { flex-direction: row; width: auto; }
 .show-hidden input[type="checkbox"] { width: auto; margin: 0; padding: 0; }
 .month:has(.status-menu[open]) { position: relative; z-index: 5; }
 
-/* Settings popup. */
-.settings-field { margin: 0 0 18px; padding: 0; border: 0; }
-.settings-field .label-text { margin-bottom: 8px; font-size: 13px; font-weight: 600; color: var(--soft); }
-.settings-field .segmented { align-self: flex-start; }
-.settings-field .segmented label { gap: 6px; padding: 0 14px; font-weight: 400; }
+/* Settings popup, laid out like an editor's settings: search on top, a
+   section list on the left, the settings in a scrolling list on the right. */
+.modal.settings-modal { max-width: 1080px; height: min(720px, calc(100% - 32px)); overflow: hidden; }
+.modal.settings-modal[open]:not(:modal) { height: min(720px, calc(100% - 32px)); }
+.settings-modal .modal-inner, .settings-form { height: 100%; }
+.settings-form { display: flex; flex-direction: column; }
+.settings-head { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 10px 0 20px; border-bottom: 1px solid var(--border); }
+.settings-head > .icon { font-size: 18px; color: var(--soft); }
+.settings-head h2 { flex: 1; margin: 0; font-size: 15px; font-weight: 600; }
+.settings-search { position: relative; padding: 14px 24px; border-bottom: 1px solid var(--border); }
+.settings-search > .icon { position: absolute; left: 36px; top: 50%; transform: translateY(-50%); font-size: 16px; color: var(--muted); pointer-events: none; }
+.settings-search input { width: 100%; box-sizing: border-box; min-height: 40px; padding-left: 36px; background: var(--field-bg); border-color: var(--field-border); }
+.settings-search input:focus { outline: none; border-color: var(--accent); }
+.settings-main { display: flex; flex: 1; min-height: 0; }
+.settings-nav { flex: none; width: 210px; display: flex; flex-direction: column; gap: 2px; padding: 14px 10px; border-right: 1px solid var(--border); }
+.settings-nav a { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; border-radius: 8px; color: var(--soft); font-size: 14px; }
+.settings-nav a:hover { background: color-mix(in srgb, var(--raised) 60%, transparent); color: var(--text); }
+.settings-nav a[aria-current="true"] { background: var(--selected); color: var(--accent); font-weight: 600; }
+.settings-nav .icon { font-size: 17px; }
+.settings-list { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 8px 40px 32px; }
+.settings-list > .alert { margin: 12px 0 0; }
+/* Not a scroll box (the general section rule makes one): settings rows
+   reach 20px past it for their hover background. */
+.settings-section { padding-top: 16px; overflow: visible; }
+.settings-section h3 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+.settings-section > .setting-desc { margin: 4px 0 0; }
+.setting { position: relative; margin: 0 -20px; padding: 14px 20px 18px; border: 0; border-radius: 10px; min-width: 0; }
+.setting:hover { background: color-mix(in srgb, var(--raised) 35%, transparent); }
+/* The focused setting gets an accent bar on its left edge. */
+.setting:focus-within::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 18px; width: 2px; border-radius: 2px; background: var(--accent); }
+.setting-name { display: block; padding: 0; font-size: 14px; color: var(--text); }
+.setting-name span { color: var(--soft); }
+.setting-name strong { font-weight: 600; }
+.setting-desc { margin: 4px 0 10px; font-size: 14px; color: var(--soft); }
+.setting-note { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+.setting-note code { font-size: 12px; padding: 1px 5px; border-radius: 4px; background: var(--raised); color: var(--text); }
+.setting-error { margin: 8px 0 0; font-size: 13px; color: var(--error); }
+.setting-control { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.setting-control .segmented label { gap: 6px; padding: 0 14px; font-weight: 400; }
+.setting-control button, .setting-control .button { min-height: 40px; padding: 0 16px; font-size: 14px; }
+.path-input { flex: 1 1 240px; min-width: 0; max-width: 480px; text-overflow: ellipsis; min-height: 40px; box-sizing: border-box; background: var(--field-bg); border-color: var(--field-border); font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+label.setting-check { flex-direction: row; align-items: flex-start; gap: 10px; margin-top: 8px; font-size: 14px; color: var(--soft); cursor: pointer; }
+.setting-check input[type="checkbox"] { width: auto; margin: 3px 0 0; padding: 0; accent-color: var(--accent); }
+.settings-empty { margin: 24px 0; }
+@media (max-width: 640px) {
+  .settings-main { flex-direction: column; }
+  .settings-nav { width: auto; flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--border); padding: 8px 12px; }
+  .settings-list { padding: 4px 24px 24px; }
+}
 label.check-row { flex-direction: row; display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
 .check-row input[type="checkbox"] { width: auto; margin: 3px 0 0; accent-color: var(--accent); }
 .check-row > span { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }

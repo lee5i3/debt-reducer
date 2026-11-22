@@ -17,10 +17,12 @@ templ DebtsPage(d DebtsData) {
 					{ debtsSummary(d) }
 				</p>
 			</div>
-			<a class="button with-icon" href="/debts/new">
-				@components.IconPlus()
-				Add debt
-			</a>
+			if d.TotalCount > 0 {
+				<a class="button with-icon" href="/debts/new">
+					@components.IconPlus()
+					Add debt
+				</a>
+			}
 		</div>
 		@components.Alerts("", d.Notice)
 		if d.TotalCount > 0 {

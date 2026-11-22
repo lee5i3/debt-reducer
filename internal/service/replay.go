@@ -8,10 +8,12 @@ import (
 
 // replay works out what's left on each debt: it starts from the amount the
 // debt was entered with (as of its start date) and applies every marked
-// plan month from that date's month on, in order. A month the debt was
-// marked in keeps the payment, interest and minimum recorded then; a month
-// it missed (inactive, or added later) charges interest on what was left
-// and takes off its current minimum. Promotional purchases are paid down earliest-expiring first.
+// plan month from that date's month on, in order, using the payment,
+// interest and minimum recorded when the month was marked. Marked months
+// are history: a debt that wasn't in one (inactive then, or added later)
+// is never added to it, so a reactivated debt picks up from the next
+// unmarked month with the amount it had. Promotional purchases are paid
+// down earliest-expiring first.
 //
 // It returns each debt with Balance (and Promos) set to what's left, and
 // the per-debt rows for each marked month, recomputed the same way so
@@ -25,9 +27,7 @@ func replay(debts []debt.Debt, marked []debt.MonthRecord) (map[int64]debt.Debt, 
 
 	history := make([][]debt.MonthDebt, len(marked))
 	for i, m := range marked {
-		seen := map[int64]bool{}
 		for _, row := range m.Debts {
-			seen[row.DebtID] = true
 			d, ok := left[row.DebtID]
 			if !ok || m.Month.Before(FirstOfMonth(d.StartDate)) {
 				// A deleted debt, or a month before its starting amount:
@@ -37,18 +37,6 @@ func replay(debts []debt.Debt, marked []debt.MonthRecord) (map[int64]debt.Debt, 
 			}
 			var r debt.MonthDebt
 			left[d.ID], r = applyRecorded(d, m.Status, row)
-			history[i] = append(history[i], r)
-		}
-		// An active debt the month didn't record (it was inactive then, or
-		// added later with an earlier start date) still had its minimum due:
-		// count it from the debt's start month on so its balance is right.
-		for _, d0 := range debts {
-			d := left[d0.ID]
-			if seen[d.ID] || d.Inactive || d.Balance == 0 || m.Month.Before(FirstOfMonth(d.StartDate)) {
-				continue
-			}
-			var r debt.MonthDebt
-			left[d.ID], r = applyMonth(d, m.Status, d.MinimumPayment, debt.RoleMinimum)
 			history[i] = append(history[i], r)
 		}
 	}
@@ -79,36 +67,6 @@ func applyRecorded(d debt.Debt, status string, row debt.MonthDebt) (debt.Debt, d
 	return d, debt.MonthDebt{
 		DebtID: d.ID, Name: d.Name, Before: before, Interest: interest,
 		Paid: paid, Minimum: min(row.Minimum, paid), Left: d.Balance, Role: role,
-	}
-}
-
-// applyMonth adds a month's interest to what's left on d and takes off the
-// payment (nothing in a skipped month). It returns the updated debt and
-// its row for the month.
-func applyMonth(d debt.Debt, status string, pay debt.Money, role string) (debt.Debt, debt.MonthDebt) {
-	before := d.Balance
-	interest := debt.Money(0)
-	if before > 0 {
-		interest = debt.MonthlyInterest(before, d.APR)
-	}
-	paid := min(pay, before+interest)
-	if status == debt.MonthSkipped {
-		paid = 0
-	}
-	d.Balance = before + interest - paid
-	payPromos(&d, paid-interest)
-
-	switch {
-	case status == debt.MonthSkipped:
-		role = debt.RoleSkipped
-	case d.Balance == 0 && before > 0:
-		role = debt.RolePaidOff
-	case role == debt.RolePaidOff:
-		role = debt.RoleExtra // no longer clears it (starting amount changed)
-	}
-	return d, debt.MonthDebt{
-		DebtID: d.ID, Name: d.Name, Before: before, Interest: interest,
-		Paid: paid, Minimum: min(d.MinimumPayment, paid), Left: d.Balance, Role: role,
 	}
 }
 

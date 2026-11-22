@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
 
+	"github.com/lee5i3/debt-reducer/internal/config"
 	"github.com/lee5i3/debt-reducer/internal/debt"
 	"github.com/lee5i3/debt-reducer/internal/service"
 	"github.com/lee5i3/debt-reducer/web/views/components"
@@ -25,11 +27,21 @@ type Handler struct {
 	planner service.Planner
 	plans   service.PlanService
 	log     *slog.Logger
+	// dbPath is the database file, shown under Data in Settings.
+	dbPath string
 }
 
 // New is a dig constructor for Handler.
-func New(debts service.DebtService, planner service.Planner, plans service.PlanService, log *slog.Logger) *Handler {
-	return &Handler{debts: debts, planner: planner, plans: plans, log: log}
+func New(debts service.DebtService, planner service.Planner, plans service.PlanService, log *slog.Logger, cfg *config.Config) *Handler {
+	return &Handler{debts: debts, planner: planner, plans: plans, log: log, dbPath: absPath(cfg.DBPath)}
+}
+
+// absPath is p made absolute, or p itself if that fails.
+func absPath(p string) string {
+	if a, err := filepath.Abs(p); err == nil {
+		return a
+	}
+	return p
 }
 
 // Health is a liveness probe.
@@ -97,9 +109,48 @@ func (h *Handler) shell(r *http.Request, active string) components.Shell {
 	tp, err := h.plans.Tracked(r.Context())
 	if err != nil {
 		h.log.Warn("load sidebar summary", "err", err)
-		return h.withPreferences(r, components.Shell{Active: active})
+		s := h.withPreferences(r, components.Shell{Active: active})
+		h.countDebts(r, &s)
+		return s
 	}
 	return h.shellFrom(r, active, tp)
+}
+
+// countDebts fills in the sidebar's debt counts.
+func (h *Handler) countDebts(r *http.Request, s *components.Shell) {
+	debts, err := h.debts.List(r.Context())
+	if err != nil {
+		return
+	}
+	s.DebtCount = len(debts)
+	s.ActiveDebts = countActive(debts)
+}
+
+func countActive(debts []debt.Debt) int {
+	n := 0
+	for _, d := range debts {
+		if !d.Inactive {
+			n++
+		}
+	}
+	return n
+}
+
+// RequirePlan sends Plan and Simulate requests to the debt list while there
+// are no active debts, so a new user starts by adding one.
+func (h *Handler) RequirePlan(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		debts, err := h.debts.List(r.Context())
+		if err == nil && countActive(debts) == 0 {
+			to := "/debts"
+			if r.Method == http.MethodGet && r.URL.Query().Get("settings") == "1" {
+				to += "?settings=1" // keep the settings popup open
+			}
+			http.Redirect(w, r, to, http.StatusSeeOther)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // shellFrom builds the sidebar from an already-loaded plan. The debt-free
@@ -107,9 +158,7 @@ func (h *Handler) shell(r *http.Request, active string) components.Shell {
 func (h *Handler) shellFrom(r *http.Request, active string, tp *service.TrackedPlan) components.Shell {
 	s := h.withPreferences(r, components.Shell{Active: active, TotalOwed: tp.Owed,
 		InterestPaid: tp.InterestPaid(), InterestAhead: tp.InterestAhead()})
-	if debts, err := h.debts.List(r.Context()); err == nil {
-		s.DebtCount = len(debts)
-	}
+	h.countDebts(r, &s)
 	if tp.Set {
 		s.DebtFree = tp.DebtFree()
 		return s
@@ -172,6 +221,7 @@ func (h *Handler) withPreferences(r *http.Request, s components.Shell) component
 	}
 	if open {
 		s.Settings = &p
+		s.DataFile = h.dbPath
 		if failed {
 			s.SettingsError = "Those settings couldn't be saved. Pick a theme and try again."
 		}

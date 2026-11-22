@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/lee5i3/debt-reducer/internal/config"
 	"io"
 	"log/slog"
 	"net/http"
@@ -45,7 +46,7 @@ func newEnv(t *testing.T) *env {
 	planner := service.NewPlanner(debts, calc)
 	plans := service.NewPlanService(debtRepo, settings, repository.NewPlanRepository(db), calc)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h := handler.New(debts, planner, plans, log)
+	h := handler.New(debts, planner, plans, log, &config.Config{DBPath: "/data/debts/debt-reducer.db"})
 	router, err := server.NewRouter(h)
 	if err != nil {
 		t.Fatal(err)

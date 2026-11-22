@@ -43,8 +43,25 @@ Other targets: `make build`, `make run`, `make test`, `make lint`, `make fmt`,
 |---------|---------------------|-------------------------|
 | `-addr` | `DEBT_REDUCER_ADDR` | `:8080`                 |
 | `-db`   | `DEBT_REDUCER_DB`   | `data/debt-reducer.db`  |
+| `-exit-with-stdin` |          | off (stop when stdin closes; used by the desktop app) |
 
 The database is created and migrated on startup. `data/` is git-ignored.
+
+## Desktop app
+
+`desktop/` is an Electron shell for Linux, Windows and macOS. It starts the Go
+server on a free local port and shows the same pages in a window.
+
+```sh
+make desktop                          # build and open it
+make desktop-dist                     # Linux installers (AppImage, deb) in bin/dist/
+make desktop-dist PLATFORMS="--win"   # Windows installer (needs wine on Linux)
+```
+
+macOS builds (`PLATFORMS="--mac"`) have to run on a Mac. The desktop app keeps
+its database in the user data folder (`~/.config/Debt Reducer/`,
+`%APPDATA%\Debt Reducer\`, `~/Library/Application Support/Debt Reducer/`).
+AppImages need `libfuse2`; use the `.deb` if it isn't installed.
 
 ## Layout
 
@@ -60,6 +77,7 @@ internal/handler/       HTTP handlers (UI pages + JSON API)
 internal/server/        chi router and http.Server
 web/views/              templ components
 web/static/             CSS (embedded)
+desktop/                Electron shell (starts the server, shows its pages)
 ```
 
 ## JSON API

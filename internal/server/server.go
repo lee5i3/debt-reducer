@@ -30,20 +30,25 @@ func NewRouter(h *handler.Handler) (http.Handler, error) {
 
 	r.Get("/healthz", h.Health)
 	r.Get("/favicon.ico", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServerFS(static)))
+	r.Handle("/static/*", noCache(http.StripPrefix("/static/", http.FileServerFS(static))))
 
 	// Web UI
-	r.Get("/", h.PlanPage)
-	r.Get("/plan/setup", h.PlanSetupPage)
-	r.Post("/plan/setup", h.SavePlanSetup)
-	r.Route("/plan/months/{month}", func(r chi.Router) {
-		r.Get("/edit", h.EditMonthPage)
-		r.Post("/edit", h.SaveMonthEdit)
-		r.Post("/{action}", h.MarkMonth)
+	// Plan and Simulate need at least one active debt; otherwise they
+	// redirect to the debt list.
+	r.Group(func(r chi.Router) {
+		r.Use(h.RequirePlan)
+		r.Get("/", h.PlanPage)
+		r.Get("/plan/setup", h.PlanSetupPage)
+		r.Post("/plan/setup", h.SavePlanSetup)
+		r.Route("/plan/months/{month}", func(r chi.Router) {
+			r.Get("/edit", h.EditMonthPage)
+			r.Post("/edit", h.SaveMonthEdit)
+			r.Post("/{action}", h.MarkMonth)
+		})
+		r.Get("/simulate", h.SimulatePage)
+		r.Post("/simulate/apply", h.ApplySimulation)
+		r.Get("/lump-sum", h.LumpSumPage)
 	})
-	r.Get("/simulate", h.SimulatePage)
-	r.Post("/simulate/apply", h.ApplySimulation)
-	r.Get("/lump-sum", h.LumpSumPage)
 	r.Get("/settings", h.SettingsPage)
 	r.Post("/settings", h.SaveSettings)
 	r.Route("/debts", func(r chi.Router) {
@@ -87,4 +92,14 @@ func NewHTTPServer(cfg *config.Config, router http.Handler, log *slog.Logger) *h
 		ReadHeaderTimeout: 5 * time.Second,
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelError),
 	}
+}
+
+// noCache makes browsers fetch static files fresh. They're embedded in the
+// binary (no modification time to revalidate against), so without this a
+// rebuilt app could keep showing old CSS.
+func noCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		next.ServeHTTP(w, r)
+	})
 }

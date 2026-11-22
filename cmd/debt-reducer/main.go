@@ -6,7 +6,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,11 +40,23 @@ func run() error {
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		if cfg.ExitWithStdin {
+			go func() {
+				_, _ = io.Copy(io.Discard, os.Stdin)
+				stop()
+			}()
+		}
 
+		// Listen first so port 0 picks a free port; the desktop app reads
+		// the real address from the "listening" line.
+		ln, err := net.Listen("tcp", srv.Addr)
+		if err != nil {
+			return err
+		}
 		errCh := make(chan error, 1)
 		go func() {
-			log.Info("listening", "addr", srv.Addr, "db", cfg.DBPath)
-			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Info("listening", "addr", ln.Addr().String(), "db", cfg.DBPath)
+			if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 			}
 			close(errCh)

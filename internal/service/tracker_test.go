@@ -377,9 +377,12 @@ func TestInactiveDebtLeftOutAndExtraStaysOnTop(t *testing.T) {
 	}
 }
 
-func TestReactivatedDebtCountsMonthsMarkedWhileInactive(t *testing.T) {
+// A debt reactivated after months were marked isn't added to those months:
+// it keeps the amount it had and joins the plan from the next unmarked month.
+func TestReactivatedDebtIsNotAddedToMarkedMonths(t *testing.T) {
 	f := newFixture(t)
 	nov := time.Date(2026, time.November, 1, 0, 0, 0, 0, time.Local)
+	dec := nov.AddDate(0, 1, 0)
 	if err := f.plans.Setup(f.ctx, debt.Avalanche, debt.Order{}, 0, debt.FromDollars(100), nov); err != nil {
 		t.Fatal(err)
 	}
@@ -396,30 +399,31 @@ func TestReactivatedDebtCountsMonthsMarkedWhileInactive(t *testing.T) {
 	if err := f.plans.Mark(f.ctx, nov, debt.MonthPaid); err != nil {
 		t.Fatal(err)
 	}
-	// While inactive, Store is left alone.
-	if got := f.balances(t)["Store"]; got != debt.FromDollars(300) {
-		t.Fatalf("inactive Store = %s, want $300.00 untouched", got)
-	}
-
 	if err := f.debts.SetInactive(f.ctx, store.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	// Back in: November counts its minimum. 300 + 4.50 interest - 35 = 269.50.
-	if got := f.balances(t)["Store"]; got != debt.FromDollars(269.50) {
-		t.Fatalf("reactivated Store = %s, want $269.50", got)
+
+	if got := f.balances(t)["Store"]; got != debt.FromDollars(300) {
+		t.Fatalf("reactivated Store = %s, want its $300.00 untouched", got)
 	}
 	tp, err := f.plans.Tracked(f.ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var row *debt.MonthDebt
-	for i, d := range tp.Months[0].Debts {
+	for _, d := range tp.Months[0].Debts {
 		if d.Name == "Store" {
-			row = &tp.Months[0].Debts[i]
+			t.Fatalf("paid November should not list Store, got %+v", d)
 		}
 	}
-	if row == nil || row.Paid != debt.FromDollars(35) || row.Role != debt.RoleMinimum {
-		t.Fatalf("November should show Store paying its $35 minimum, got %+v", row)
+	// It's back in the plan from December, starting at $300.
+	var row *debt.MonthDebt
+	for i, d := range tp.Months[1].Debts {
+		if d.Name == "Store" {
+			row = &tp.Months[1].Debts[i]
+		}
+	}
+	if !tp.Months[1].Month.Equal(dec) || row == nil || row.Before != debt.FromDollars(300) {
+		t.Fatalf("December should plan Store from $300.00, got month %s row %+v", tp.Months[1].Month.Format("Jan 2006"), row)
 	}
 }
 

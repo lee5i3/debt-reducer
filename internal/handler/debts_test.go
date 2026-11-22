@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -349,4 +350,24 @@ func TestMinimumPaymentAPI(t *testing.T) {
 	if got["amount"] != "—" || got["rule"] != "Enter balance and APR to calculate." {
 		t.Fatalf("invalid input = %v", got)
 	}
+}
+
+// With no debts the empty state's "Add your first debt" is the only add
+// button; the header's "Add debt" comes back once there's a debt, and stays
+// when a search matches nothing.
+func TestDebtsPageAddButton(t *testing.T) {
+	e := newEnv(t)
+	rec := e.get("/debts")
+	wantBody(t, rec, "Add your first debt")
+	if n := strings.Count(rec.Body.String(), `href="/debts/new"`); n != 1 {
+		t.Fatalf("add links with no debts = %d, want 1", n)
+	}
+
+	e.addDebt("Visa", 4500, 120, 24.99)
+	rec = e.get("/debts")
+	wantBody(t, rec, `class="button with-icon" href="/debts/new"`)
+	wantNoBody(t, rec, "Add your first debt")
+
+	rec = e.get("/debts?q=nothing-matches")
+	wantBody(t, rec, `class="button with-icon" href="/debts/new"`, "No debts match your search.")
 }
