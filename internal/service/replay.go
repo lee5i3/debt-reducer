@@ -8,9 +8,10 @@ import (
 
 // replay works out what's left on each debt: it starts from the amount the
 // debt was entered with (as of its start date) and applies every marked
-// plan month from that date's month on, in order. Each applied month adds
-// that month's interest on what was left and takes off what the month paid
-// the debt. Promotional purchases are paid down earliest-expiring first.
+// plan month from that date's month on, in order. A month the debt was
+// marked in keeps the payment, interest and minimum recorded then; a month
+// it missed (inactive, or added later) charges interest on what was left
+// and takes off its current minimum. Promotional purchases are paid down earliest-expiring first.
 //
 // It returns each debt with Balance (and Promos) set to what's left, and
 // the per-debt rows for each marked month, recomputed the same way so
@@ -35,7 +36,7 @@ func replay(debts []debt.Debt, marked []debt.MonthRecord) (map[int64]debt.Debt, 
 				continue
 			}
 			var r debt.MonthDebt
-			left[d.ID], r = applyMonth(d, m.Status, row.Paid, row.Role)
+			left[d.ID], r = applyRecorded(d, m.Status, row)
 			history[i] = append(history[i], r)
 		}
 		// An active debt the month didn't record (it was inactive then, or
@@ -52,6 +53,33 @@ func replay(debts []debt.Debt, marked []debt.MonthRecord) (map[int64]debt.Debt, 
 		}
 	}
 	return left, history
+}
+
+// applyRecorded applies a month as it was marked: the payment, interest
+// and minimum recorded then stay as they are, even if the debt's minimum or
+// APR is edited later. Only the balances follow the debt's starting amount.
+func applyRecorded(d debt.Debt, status string, row debt.MonthDebt) (debt.Debt, debt.MonthDebt) {
+	before := d.Balance
+	interest, paid := row.Interest, row.Paid
+	if status == debt.MonthSkipped {
+		paid = 0
+	}
+	d.Balance = max(before+interest-paid, 0)
+	payPromos(&d, paid-interest)
+
+	role := row.Role
+	switch {
+	case status == debt.MonthSkipped:
+		role = debt.RoleSkipped
+	case d.Balance == 0 && before > 0:
+		role = debt.RolePaidOff
+	case role == debt.RolePaidOff:
+		role = debt.RoleExtra // no longer clears it (starting amount changed)
+	}
+	return d, debt.MonthDebt{
+		DebtID: d.ID, Name: d.Name, Before: before, Interest: interest,
+		Paid: paid, Minimum: min(row.Minimum, paid), Left: d.Balance, Role: role,
+	}
 }
 
 // applyMonth adds a month's interest to what's left on d and takes off the

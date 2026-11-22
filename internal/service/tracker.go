@@ -614,18 +614,21 @@ func (p *planService) RaiseMonthly(ctx context.Context, from time.Time, amount d
 	if from.Before(st.next) {
 		from = st.next // marked months never change
 	}
-	// Scheduled changes on or after the start go up too; earlier ones stay.
-	var changes []debt.BudgetChange
+	// Scheduled changes on or after the start go up too; earlier ones stay,
+	// including ones already in effect (they set the amount up to now).
+	changes := make([]debt.BudgetChange, 0, len(st.changes)+1)
+	reached := false // a change before from already sets the amount there
 	for _, c := range st.changes {
 		if !c.Month.Before(from) {
 			c.Amount += amount
+		} else {
+			reached = true
 		}
-		if c.Month.After(st.next) {
-			changes = append(changes, c)
-		}
+		changes = append(changes, c)
 	}
-	if from.Equal(st.next) {
-		// From the next unpaid month: this is the plan's monthly amount now.
+	if from.Equal(st.next) && !reached && !hasChange(changes, from) {
+		// From the next unpaid month with nothing scheduled before it:
+		// this is the plan's monthly amount now.
 		cur := st.settings
 		if cur.MonthlyBudget > 0 {
 			cur.MonthlyBudget = st.baseFor(st.next) + amount

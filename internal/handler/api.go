@@ -78,7 +78,12 @@ func (h *Handler) APIUpdateDebt(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, d)
+	saved, err := h.debts.Get(r.Context(), id) // what was stored, after clean-up
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
 }
 
 // APIDeleteDebt handles DELETE /api/debts/{id}.
@@ -116,7 +121,12 @@ func (h *Handler) APISaveSettings(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s)
+	saved, err := h.debts.Settings(r.Context()) // e.g. planStart isn't set here
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, saved)
 }
 
 // APIPlan handles GET /api/plan?strategy=&budget=&start=.

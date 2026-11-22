@@ -74,7 +74,7 @@ func (r *planRepo) Months(ctx context.Context) ([]debt.MonthRecord, error) {
 	}
 
 	drows, err := r.db.QueryContext(ctx,
-		`SELECT month, debt_id, debt_name, before_cents, interest_cents, paid_cents, left_cents, role
+		`SELECT month, debt_id, debt_name, before_cents, interest_cents, paid_cents, minimum_cents, left_cents, role
 		   FROM plan_month_debts ORDER BY month, rowid`)
 	if err != nil {
 		return nil, err
@@ -83,7 +83,7 @@ func (r *planRepo) Months(ctx context.Context) ([]debt.MonthRecord, error) {
 	for drows.Next() {
 		var key string
 		var d debt.MonthDebt
-		if err := drows.Scan(&key, &d.DebtID, &d.Name, &d.Before, &d.Interest, &d.Paid, &d.Left, &d.Role); err != nil {
+		if err := drows.Scan(&key, &d.DebtID, &d.Name, &d.Before, &d.Interest, &d.Paid, &d.Minimum, &d.Left, &d.Role); err != nil {
 			return nil, err
 		}
 		if i, ok := index[key]; ok {
@@ -123,9 +123,9 @@ func (r *planRepo) Record(ctx context.Context, rec debt.MonthRecord) error {
 		}
 		for _, d := range rec.Debts {
 			if _, err := tx.ExecContext(ctx,
-				`INSERT INTO plan_month_debts (month, debt_id, debt_name, before_cents, interest_cents, paid_cents, left_cents, role)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-				key, d.DebtID, d.Name, d.Before, d.Interest, d.Paid, d.Left, d.Role); err != nil {
+				`INSERT INTO plan_month_debts (month, debt_id, debt_name, before_cents, interest_cents, paid_cents, minimum_cents, left_cents, role)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				key, d.DebtID, d.Name, d.Before, d.Interest, d.Paid, min(d.Minimum, d.Paid), d.Left, d.Role); err != nil {
 				return err
 			}
 		}
