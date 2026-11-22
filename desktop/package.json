@@ -36,22 +36,37 @@
         "deb"
       ],
       "category": "Office",
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "artifactName": "Debt-Reducer-${version}-${arch}.${ext}"
     },
     "win": {
       "target": [
         "nsis"
       ]
     },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Debt Reducer",
+      "artifactName": "Debt-Reducer-Setup-${version}-${arch}.${ext}"
+    },
     "mac": {
       "target": [
         "dmg"
       ],
-      "category": "public.app-category.finance"
+      "category": "public.app-category.finance",
+      "artifactName": "Debt-Reducer-${version}-${arch}.${ext}",
+      "identity": "-"
     }
   },
   "devDependencies": {
     "electron": "^45.4.1",
     "electron-builder": "^26.18.0"
+  },
+  "overrides": {
+    "minimatch@>=7.0.0 <11.0.1": "^11.0.9"
   }
 }

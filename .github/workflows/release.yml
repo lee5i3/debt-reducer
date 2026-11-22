@@ -1,0 +1,115 @@
+# Draft release on every merge to main.
+#
+# Runs the same tests, security checks and builds as a PR (build.yml), then
+# puts the installers on a DRAFT GitHub release:
+#   - Linux AppImage
+#   - Windows setup .exe
+#   - macOS .dmg for Apple Silicon and for Intel
+#
+# The version is worked out by build.yml from the latest v* tag and the
+# commit messages since (feat: -> minor, fix!:/BREAKING CHANGE: -> major,
+# anything else -> patch). Nothing is published or tagged here: review the
+# draft on the Releases page and publish it yourself. Publishing creates the
+# v<version> tag, and the next merge starts the next version from it.
+#
+# There's only ever one draft (the next release):
+#   - no release for this version yet  -> drafts for older versions are
+#                                         deleted (e.g. a v0.1.1 draft once a
+#                                         feat: makes it v0.2.0), then a new
+#                                         draft is created with notes
+#                                         generated from the merged PRs,
+#   - a draft for it already exists    -> its files are replaced and it's
+#                                         pointed at this commit,
+#   - it's already published           -> fail (this commit is already
+#                                         released; nothing to do).
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Read-only by default; only the release job below can write.
+permissions:
+  contents: read
+
+# Merges run one at a time, in order, and are never cancelled, so each
+# draft update finishes.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Test and build
+    uses: ./.github/workflows/build.yml
+
+  release:
+    name: Draft release
+    needs: build
+    runs-on: ubuntu-24.04
+    # Creating, editing and deleting draft releases needs write access.
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      # The gh CLI (preinstalled on the runner) uses these; no checkout needed.
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # Only the installers: their artifacts are named after the files
+      # (Debt-Reducer-...), which leaves out the internal server-bins one.
+      - name: Download the installers
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: Debt-Reducer-*
+          path: dist/
+          merge-multiple: true
+
+      - name: List the files to release
+        run: ls -l dist/
+
+      - name: Create or update the draft release
+        run: |
+          tag="v${VERSION}"
+
+          # All releases as "<tag> <draft|published>". Drafts have no git tag
+          # yet, so they're found through the release list, not by tag.
+          releases=$(gh release list --limit 100 --json tagName,isDraft \
+            --jq '.[] | "\(.tagName) \(if .isDraft then "draft" else "published" end)"')
+          state=$(echo "$releases" | awk -v t="$tag" '$1 == t { print $2; exit }')
+
+          case "$state" in
+            published)
+              echo "::error::${tag} is already published, so this commit is already released."
+              exit 1
+              ;;
+            draft)
+              echo "Updating the existing ${tag} draft."
+              gh release upload "$tag" dist/* --clobber
+              gh release edit "$tag" --draft --target "$GITHUB_SHA"
+              ;;
+            *)
+              # Keep one draft: drop drafts made for an older guess at the
+              # next version.
+              echo "$releases" | awk -v t="$tag" '$2 == "draft" && $1 != t { print $1 }' |
+                while read -r old; do
+                  echo "Deleting the outdated ${old} draft."
+                  gh release delete "$old" --yes
+                done
+
+              echo "Creating a ${tag} draft."
+              gh release create "$tag" dist/* \
+                --draft \
+                --title "Debt Reducer ${VERSION}" \
+                --target "$GITHUB_SHA" \
+                --generate-notes
+              ;;
+          esac
+
+      - name: Link to the draft
+        run: |
+          url=$(gh release view "v${VERSION}" --json url --jq .url)
+          echo "Draft release: ${url}"
+          echo "### Draft release v${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+          echo "${url}" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,43 @@
+# Dependabot opens PRs to keep dependencies current. Each PR runs the PR
+# workflow (.github/workflows/pr.yml), so an update is tested and built
+# before it's merged.
+#
+# PRs get Dependabot's default "dependencies" label. Updates are checked
+# weekly and grouped per ecosystem: one PR for all minor and patch updates,
+# and a separate PR for each major version, which is more likely to need
+# changes.
+
+version: 2
+
+updates:
+  # Go modules (go.mod / go.sum): chi, dig, templ, modernc SQLite, ...
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      go-minor-and-patch:
+        update-types: [minor, patch]
+
+  # The desktop app's npm packages (desktop/package.json): Electron and
+  # electron-builder.
+  - package-ecosystem: npm
+    directory: /desktop
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+
+  # GitHub Actions used in .github/workflows. The workflows pin actions by
+  # commit SHA with the version in a comment; Dependabot updates both.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]

@@ -5,7 +5,10 @@ ADDR       ?= localhost:8080
 PORT       := $(lastword $(subst :, ,$(ADDR)))
 LOG        := bin/$(APP).log
 TEMPL      := go tool templ
-VERSION    := $(shell cat VERSION)
+# The app version comes from git tags (v1.2.3). CI works out the next version
+# from commit messages and passes VERSION=...; local builds use the latest tag
+# (plus commits since, e.g. 0.1.0-3-gabc1234), or 0.0.0-dev with no tags.
+VERSION    ?= $(or $(patsubst v%,%,$(shell git describe --tags --match 'v[0-9]*' 2>/dev/null)),0.0.0-dev)
 LDFLAGS    := -s -w -X github.com/lee5i3/debt-reducer/internal/version.Version=$(VERSION)
 
 .DEFAULT_GOAL := help
@@ -76,8 +79,13 @@ desktop-bins: generate ## Cross-compile the server for every desktop platform in
 	done
 
 .PHONY: desktop-dist
-desktop-dist: desktop-bins desktop/node_modules ## Package installers into bin/dist/ (PLATFORMS="--linux --win"; macOS needs a Mac)
-	cd desktop && env -u ELECTRON_RUN_AS_NODE npx electron-builder $(or $(PLATFORMS),--linux) --x64 --arm64 -c.extraMetadata.version=$(VERSION)
+desktop-dist: desktop-bins desktop/node_modules ## Package installers into bin/dist/ (PLATFORMS="--win nsis", ARCHS="--x64"; macOS needs a Mac)
+	cd desktop && env -u ELECTRON_RUN_AS_NODE npx electron-builder $(or $(PLATFORMS),--linux) $(or $(ARCHS),--x64 --arm64) \
+		--publish never -c.extraMetadata.version=$(VERSION)
+
+.PHONY: version
+version: ## Print the app version (from git tags, or VERSION=...)
+	@echo $(VERSION)
 
 .PHONY: logs
 logs: ## Follow the log of the app started by make restart
@@ -87,6 +95,16 @@ logs: ## Follow the log of the app started by make restart
 test: generate ## Run tests (Go, plus the desktop app's when node is installed)
 	go test ./...
 	@if command -v node >/dev/null 2>&1; then cd desktop && node --test --test-reporter=dot; fi
+
+# govulncheck: the Go team's vulnerability checker. It reports only
+# vulnerabilities in code the app actually calls. Pinned; go run verifies it
+# against the Go checksum database.
+GOVULNCHECK_VERSION := v1.10.0
+
+.PHONY: security
+security: generate ## Check Go and npm dependencies for known vulnerabilities
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	cd desktop && npm audit --audit-level=moderate
 
 .PHONY: lint
 lint: generate ## Format check and vet

@@ -1,0 +1,25 @@
+# PR checks: tests, then the Linux AppImage and Windows setup .exe as
+# downloadable artifacts. The jobs themselves live in build.yml (shared with
+# release.yml).
+#
+# Runs on every pull request, or by hand from the Actions tab.
+
+name: PR
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# Read-only token: nothing here pushes, comments or publishes.
+permissions:
+  contents: read
+
+# A new push to the same PR cancels the run that's still going for it.
+concurrency:
+  group: pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test and build
+    uses: ./.github/workflows/build.yml

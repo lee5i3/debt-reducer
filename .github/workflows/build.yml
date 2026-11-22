@@ -1,0 +1,332 @@
+# Test and build Debt Reducer: the shared part of CI.
+#
+# Not run on its own; it's called by:
+#   - pr.yml       on pull requests,
+#   - release.yml  on merges to main (then drafts a release).
+#
+# It:
+#   1. works out the next version from git tags and commit messages,
+#   2. runs the test suite and the security checks,
+#   3. cross-compiles the Go server once for every desktop platform,
+#   4. packages the Electron desktop app: Linux AppImage, Windows NSIS setup
+#      .exe and macOS .dmg (Apple Silicon and Intel), using those server
+#      builds.
+#
+# The installers are uploaded as artifacts (kept 14 days): open the run in
+# the Actions tab and download them from its Summary page.
+#
+# Versions are pinned so a run is repeatable:
+#   - actions by full commit SHA (the tag in the comment is what it points
+#     to; Dependabot keeps both up to date, see .github/dependabot.yaml),
+#   - runner images by OS release instead of *-latest,
+#   - Go by go.mod, Node by NODE_VERSION below, govulncheck in the Makefile.
+
+name: Build
+
+on:
+  workflow_call:
+    outputs:
+      version:
+        description: The version this build was made as, e.g. 0.2.0
+        value: ${{ jobs.version.outputs.version }}
+
+# Read-only token: nothing here pushes, comments or publishes.
+permissions:
+  contents: read
+
+env:
+  # Node for the desktop app (Electron tooling, node --test and npm audit).
+  NODE_VERSION: "24.22.3"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Version: the latest v* tag plus one bump, picked from the commit messages
+  # since that tag (Conventional Commits):
+  #   feat: ...                         -> minor  (0.1.0 -> 0.2.0)
+  #   fix!: ... / BREAKING CHANGE: ...  -> major  (0.1.0 -> 1.0.0)
+  #   anything else                     -> patch  (0.1.0 -> 0.1.1)
+  # Nothing is tagged here: publishing the draft release creates the tag,
+  # which is what moves the next version on.
+  # ---------------------------------------------------------------------------
+  version:
+    name: Version
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+    steps:
+      # Full history and tags, so the last tag and the commits since it can
+      # be read.
+      - name: Check out the code (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Work out the next version
+        id: semver
+        uses: paulhatch/semantic-version@5ae1354e589c5a67345fb2c6e65b025ff676d7c7 # v6.0.7
+        # The action's default patterns are the Conventional Commits ones
+        # above: major "/!:|BREAKING CHANGE:/", minor "/feat(\(.+\))?:/".
+        with:
+          tag_prefix: "v"
+          version_format: "${major}.${minor}.${patch}"
+          # Look for BREAKING CHANGE: in commit bodies too, not just titles.
+          search_commit_body: true
+
+      - name: Show the version
+        run: |
+          echo "Version ${{ steps.semver.outputs.version }} (${{ steps.semver.outputs.version_type }} bump from ${{ steps.semver.outputs.previous_version }})"
+          echo "### Version ${{ steps.semver.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Tests: the same checks as running `make lint test` locally.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      # Only for `node --test` in desktop/; those tests need no npm packages,
+      # so there's no npm install and no npm cache here.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      # templ generate + templ fmt check + go vet, then go test ./... and the
+      # desktop tests (see the Makefile).
+      - name: Lint and test
+        run: make lint test
+
+  # ---------------------------------------------------------------------------
+  # Security: known vulnerabilities in dependencies (`make security`).
+  #   - govulncheck: Go modules and the Go standard library; it only reports
+  #     vulnerabilities in code the app actually calls.
+  #   - npm audit: the desktop app's npm packages (moderate and above).
+  # A failure here doesn't stop the PR builds, but it fails the run, so a
+  # merge to main makes no draft release until it's fixed.
+  # ---------------------------------------------------------------------------
+  security:
+    name: Security checks
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      # npm audit only reads desktop/package-lock.json; no install needed.
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Check dependencies for known vulnerabilities
+        run: make security
+
+  # ---------------------------------------------------------------------------
+  # Server builds: the Go server is pure Go (CGO_ENABLED=0), so one Linux job
+  # cross-compiles it for every platform. The packaging jobs below download
+  # these instead of each setting up Go.
+  # ---------------------------------------------------------------------------
+  server:
+    name: Server builds
+    needs: version
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go (version from go.mod)
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+
+      # Writes bin/desktop/<os>-<arch>/debt-reducer[.exe] for linux, windows
+      # and mac (x64 and arm64), with the version built in (it's shown in
+      # the app's footer).
+      - name: Build the server for each platform
+        run: make desktop-bins VERSION=${{ needs.version.outputs.version }}
+
+      # Only passed to the packaging jobs, so it's kept for a day.
+      - name: Upload the server builds
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-bins
+          path: bin/desktop/
+          retention-days: 1
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Linux: the desktop app as an AppImage (x64).
+  # ---------------------------------------------------------------------------
+  linux:
+    name: Linux AppImage
+    needs: [version, test, server]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # electron-builder bundles bin/desktop/linux-x64 into the app (see
+      # extraResources in desktop/package.json).
+      - name: Download the server builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-bins
+          path: bin/desktop/
+
+      # Artifacts don't keep file permissions.
+      - name: Make the server executable
+        run: chmod +x bin/desktop/*/debt-reducer
+
+      - name: Set up Node (with npm cache)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      # Installs exactly what desktop/package-lock.json lists (Electron and
+      # electron-builder).
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # --publish never: electron-builder must not try to make a release.
+      - name: Build the AppImage
+        working-directory: desktop
+        run: >-
+          npx electron-builder --linux AppImage --x64 --publish never
+          -c.extraMetadata.version=${{ needs.version.outputs.version }}
+
+      # archive: false uploads the AppImage itself (no zip), named after the
+      # file, e.g. Debt-Reducer-0.2.0-x86_64.AppImage.
+      - name: Upload the AppImage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: bin/dist/Debt-Reducer-*.AppImage
+          archive: false
+          retention-days: 14
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Windows: the desktop app as an NSIS setup .exe (x64), built on Windows so
+  # the installer and its icons/metadata are made natively. Not code-signed,
+  # so Windows SmartScreen warns when it's run.
+  # ---------------------------------------------------------------------------
+  windows:
+    name: Windows setup
+    needs: [version, test, server]
+    runs-on: windows-2025
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # electron-builder bundles bin/desktop/win-x64 into the app.
+      - name: Download the server builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-bins
+          path: bin/desktop/
+
+      - name: Set up Node (with npm cache)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # The installer's options (choose folder, Start Menu and desktop
+      # shortcuts) are under "nsis" in desktop/package.json.
+      - name: Build the NSIS installer
+        working-directory: desktop
+        run: >-
+          npx electron-builder --win nsis --x64 --publish never
+          -c.extraMetadata.version=${{ needs.version.outputs.version }}
+
+      # Uploads the setup .exe itself (no zip), e.g.
+      # Debt-Reducer-Setup-0.2.0-x64.exe.
+      - name: Upload the installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: bin/dist/Debt-Reducer-Setup-*.exe
+          archive: false
+          retention-days: 14
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # macOS: the desktop app as a .dmg, one per processor (Apple Silicon and
+  # Intel), built side by side on the same Apple Silicon runner.
+  #
+  # Signed ad hoc ("identity": "-" in desktop/package.json): enough for Apple
+  # Silicon Macs to run it, but without an Apple Developer ID and
+  # notarization macOS still warns that the developer can't be verified.
+  # ---------------------------------------------------------------------------
+  macos:
+    name: macOS dmg (${{ matrix.arch }})
+    needs: [version, test, server]
+    runs-on: macos-15
+    strategy:
+      matrix:
+        # electron-builder's names: arm64 = Apple Silicon, x64 = Intel.
+        arch: [arm64, x64]
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # electron-builder bundles bin/desktop/mac-<arch> into the app.
+      - name: Download the server builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-bins
+          path: bin/desktop/
+
+      # Artifacts don't keep file permissions.
+      - name: Make the server executable
+        run: chmod +x bin/desktop/*/debt-reducer
+
+      - name: Set up Node (with npm cache)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # CSC_IDENTITY_AUTO_DISCOVERY=false: don't look for a signing
+      # certificate in the runner's keychain; use the ad hoc identity.
+      - name: Build the dmg
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: >-
+          npx electron-builder --mac dmg --${{ matrix.arch }} --publish never
+          -c.extraMetadata.version=${{ needs.version.outputs.version }}
+
+      # Uploads the .dmg itself (no zip), e.g. Debt-Reducer-0.2.0-arm64.dmg.
+      - name: Upload the dmg
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: bin/dist/Debt-Reducer-*-${{ matrix.arch }}.dmg
+          archive: false
+          retention-days: 14
+          if-no-files-found: error

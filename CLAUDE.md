@@ -32,10 +32,13 @@ and `BACKLOG.md`. Add any lasting decision to `MEMORY.md`.
 
 ## Commands
 
+README.md is for people installing the app; developer docs go in DEVELOPMENT.md.
+
 ```sh
 make init      # deps, data dir, templ generate
 make dev       # live reload at http://localhost:7331 (app on :8080)
-make test      # generate + go test ./...
+make test      # generate + go test ./... (+ desktop node tests)
+make security  # govulncheck + npm audit
 make lint      # templ fmt check + go vet
 make build     # bin/debt-reducer
 make db-reset  # delete the local database
@@ -58,6 +61,11 @@ make desktop-dist  # installers into bin/dist (PLATFORMS="--linux --win"; mac bu
 
 VS Code terminals set `ELECTRON_RUN_AS_NODE=1`, which makes Electron act as plain Node. `make desktop` unsets it; do the same when running electron or electron-builder by hand.
 
+## CI
+
+- `.github/workflows/build.yml` (reusable, `workflow_call`): version (paulhatch/semantic-version: latest `v*` tag + Conventional Commits bump), `make lint test`, `make security`, then AppImage (Linux), NSIS setup (Windows, unsigned) and dmg (macOS arm64 + x64, ad hoc signed) as artifacts. `pr.yml` calls it on pull requests; `release.yml` calls it on pushes to main and keeps one draft release `v<version>` via `gh`. Keep every step named, a blank line between steps, and comments explaining why
+- Pin actions by full commit SHA with the version in a comment (`uses: actions/checkout@<sha> # v7.0.1`), runners by OS release (`ubuntu-24.04`, `windows-2025`), Node by exact version. `.github/dependabot.yaml` updates Go, npm (`desktop/`) and actions weekly
+
 ## Code rules
 
 - Money is `debt.Money` (int64 cents). Never use float64 for stored or summed amounts. Parse user input with `debt.ParseDollars`
@@ -67,7 +75,7 @@ VS Code terminals set `ELECTRON_RUN_AS_NODE=1`, which makes Electron act as plai
 - Schema changes are new migration files only. Never edit an applied migration
 - The Plan is saved and tracked (`service.PlanService`): history comes from marked months (`plan_months`, `plan_month_debts`), the rest is projected starting at the next unmarked month. A debt's stored balance is its starting amount as of its `start_date`; what's left is derived by replaying marked months from that month on (`internal/service/replay.go`). Marking Paid/Skip and Undo never change debts. A marked month keeps its recorded payment, interest and minimum (`plan_month_debts.minimum_cents`) when a debt is edited later. Marked months never gain debts: one that wasn't in a month (inactive then, reactivated or added later) stays out of it and joins the plan from the next unmarked month with the amount it had. Months are marked in order; only the latest can be undone
 - Plan and Simulate need at least one active debt: their routes sit behind `Handler.RequirePlan` (redirects to `/debts`), the sidebar greys them out (`Shell.CanPlan`), and the desktop menu does the same (`refreshMenu`). New plan/simulate routes go inside that group
-- The version comes from the `VERSION` file, set at build time into `internal/version.Version` (and the desktop package version by `make desktop-dist`); `go run` shows "dev build". The footer on every page shows it
+- The version comes from git tags: CI computes the next one from commit messages (use Conventional Commit messages: `feat:` minor, `!:`/`BREAKING CHANGE:` major, else patch) and passes `VERSION=`; locally `git describe` or `0.0.0-dev`. It's set at build time into `internal/version.Version` (and the desktop package version); the footer shows it
 - Paid-off debts keep a zero balance, and inactive debts (`Debt.Inactive`) stay listed but out of the plan. Anything that runs the calculator must leave both out (the calculator rejects balance 0)
 - After editing `.templ` files, run `make generate` (or `make dev`). If `templ fmt` reflows text, re-check that it kept the spacing you meant
 
