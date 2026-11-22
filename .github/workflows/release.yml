@@ -7,7 +7,7 @@
 #   - macOS .dmg for Apple Silicon and for Intel
 #
 # The version is worked out by build.yml from the latest v* tag and the
-# commit messages since (feat: -> minor, fix!:/BREAKING CHANGE: -> major,
+# commit messages since ("BREAKING CHANGE" -> major, "feat" -> minor,
 # anything else -> patch). Nothing is published or tagged here: review the
 # draft on the Releases page and publish it yourself. Publishing creates the
 # v<version> tag, and the next merge starts the next version from it.
@@ -15,7 +15,7 @@
 # There's only ever one draft (the next release):
 #   - no release for this version yet  -> drafts for older versions are
 #                                         deleted (e.g. a v0.1.1 draft once a
-#                                         feat: makes it v0.2.0), then a new
+#                                         feat makes it v0.2.0), then a new
 #                                         draft is created with notes
 #                                         generated from the merged PRs,
 #   - a draft for it already exists    -> its files are replaced and it's

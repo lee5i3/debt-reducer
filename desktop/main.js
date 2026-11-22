@@ -111,6 +111,8 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'Debt Reducer',
+    // The window/taskbar icon on Linux and Windows (macOS uses the app bundle's).
+    icon: path.join(__dirname, 'build', 'icon.png'),
     backgroundColor: '#0f1318', // --bg, so there's no white flash
     show: false,
     webPreferences: {

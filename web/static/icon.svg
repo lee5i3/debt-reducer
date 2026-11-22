@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- App icon (browser tab). Same design as desktop/build/icon.py; change both together. -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#141a22" stroke="#2a313b" stroke-width="6"/>
+  <rect x="188" y="304" width="120" height="440" rx="28" fill="#6ea0ff"/>
+  <rect x="364" y="424" width="120" height="320" rx="28" fill="#6ea0ff" fill-opacity="0.86"/>
+  <rect x="540" y="544" width="120" height="200" rx="28" fill="#6ea0ff" fill-opacity="0.73"/>
+  <rect x="716" y="664" width="120" height="80" rx="28" fill="#4cc38a"/>
+</svg>

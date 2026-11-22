@@ -22,6 +22,7 @@
       "menu.js",
       "preload.js",
       "data.js",
+      "build/icon.png",
       "package.json"
     ],
     "extraResources": [

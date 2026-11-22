@@ -53,19 +53,23 @@ with a scratch database.
 
 ## Versions
 
-Versions come from git tags (`v1.2.3`) and commit messages, following
-[Conventional Commits](https://www.conventionalcommits.org/). On every build,
-CI takes the latest `v*` tag and adds one bump based on the commits since:
+Versions come from git tags (`v1.2.3`) and commit messages. On every build,
+CI ([github-tag-action](https://github.com/anothrNick/github-tag-action), in
+dry-run mode) takes the latest `v*` tag and adds one bump based on the
+commits since:
 
-| Commit message                               | Bump  | Example         |
-|----------------------------------------------|-------|-----------------|
-| `feat: add a debt search`                    | minor | 0.1.0 → 0.2.0   |
-| `fix!: ...`, or `BREAKING CHANGE:` in body   | major | 0.1.0 → 1.0.0   |
-| anything else (`fix:`, `docs:`, `chore:` …)  | patch | 0.1.0 → 0.1.1   |
+| Commit message contains            | Bump  | Example         |
+|------------------------------------|-------|-----------------|
+| `BREAKING CHANGE` (title or body)  | major | 0.1.0 → 1.0.0   |
+| `feat` (e.g. `feat: add search`)   | minor | 0.1.0 → 0.2.0   |
+| anything else (`fix:`, `docs:` …)  | patch | 0.1.0 → 0.1.1   |
 
-Several commits still bump only once (the biggest wins) until the release is
-published, which creates the tag. With squash merges the PR title becomes the
-commit message, so give PRs Conventional Commit titles.
+It's a plain text match, so avoid "feat" in other words (like "feature") in
+fix commits. Several commits still bump only once (the biggest wins) until
+the release is published, which creates the tag. With no tags yet the first
+version is 0.0.1; to start at 0.1.0 instead, change the draft's tag to
+`v0.1.0` when publishing it. With squash merges the PR title becomes the
+commit message.
 
 The build stamps the version into the server (shown in the footer) and into
 the installers. Local builds use `git describe` (e.g. `0.1.0-3-gabc1234`), or
