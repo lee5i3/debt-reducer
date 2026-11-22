@@ -41,18 +41,20 @@ env:
 jobs:
   # ---------------------------------------------------------------------------
   # Version: the latest v* tag plus one bump, picked from the commit messages
-  # since that tag (Conventional Commits):
-  #   feat: ...                         -> minor  (0.1.0 -> 0.2.0)
-  #   fix!: ... / BREAKING CHANGE: ...  -> major  (0.1.0 -> 1.0.0)
-  #   anything else                     -> patch  (0.1.0 -> 0.1.1)
-  # Nothing is tagged here: publishing the draft release creates the tag,
-  # which is what moves the next version on.
+  # since that tag (anothrNick/github-tag-action, set up for Conventional
+  # Commits):
+  #   "BREAKING CHANGE" anywhere in a message  -> major  (0.1.0 -> 1.0.0)
+  #   "feat" anywhere in a message             -> minor  (0.1.0 -> 0.2.0)
+  #   anything else                            -> patch  (0.1.0 -> 0.1.1)
+  # With no tags yet it starts from 0.0.0, so the first version is 0.0.1.
+  # DRY_RUN: nothing is tagged here. Publishing the draft release creates the
+  # tag, which is what moves the next version on.
   # ---------------------------------------------------------------------------
   version:
     name: Version
     runs-on: ubuntu-24.04
     outputs:
-      version: ${{ steps.semver.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       # Full history and tags, so the last tag and the commits since it can
       # be read.
@@ -61,21 +63,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The action is configured with environment variables, not inputs.
       - name: Work out the next version
-        id: semver
-        uses: paulhatch/semantic-version@5ae1354e589c5a67345fb2c6e65b025ff676d7c7 # v6.0.7
-        # The action's default patterns are the Conventional Commits ones
-        # above: major "/!:|BREAKING CHANGE:/", minor "/feat(\(.+\))?:/".
-        with:
-          tag_prefix: "v"
-          version_format: "${major}.${minor}.${patch}"
-          # Look for BREAKING CHANGE: in commit bodies too, not just titles.
-          search_commit_body: true
+        id: tag
+        uses: anothrNick/github-tag-action@4ed44965e0db8dab2b466a16da04aec3cc312fd8 # 1.75.0
+        env:
+          DRY_RUN: true
+          WITH_V: true
+          DEFAULT_BUMP: patch
+          MAJOR_STRING_TOKEN: BREAKING CHANGE
+          MINOR_STRING_TOKEN: feat
+          # Bump from the commits since the last tag.
+          BRANCH_HISTORY: compare
 
+      # new_tag is "v1.2.3"; the build wants "1.2.3".
       - name: Show the version
+        id: version
+        env:
+          NEW_TAG: ${{ steps.tag.outputs.new_tag }}
+          OLD_TAG: ${{ steps.tag.outputs.old_tag }}
+          PART: ${{ steps.tag.outputs.part }}
         run: |
-          echo "Version ${{ steps.semver.outputs.version }} (${{ steps.semver.outputs.version_type }} bump from ${{ steps.semver.outputs.previous_version }})"
-          echo "### Version ${{ steps.semver.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          version="${NEW_TAG#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "Version ${version} (${PART} bump from ${OLD_TAG})"
+          echo "### Version ${version} (${PART} bump from ${OLD_TAG})" >> "$GITHUB_STEP_SUMMARY"
 
   # ---------------------------------------------------------------------------
   # Tests: the same checks as running `make lint test` locally.
@@ -254,8 +266,11 @@ jobs:
 
       # The installer's options (choose folder, Start Menu and desktop
       # shortcuts) are under "nsis" in desktop/package.json.
+      # shell: bash (Git Bash) because PowerShell, the Windows default, splits
+      # "-c.extraMetadata.version=..." into "-c" and ".extraMetadata...".
       - name: Build the NSIS installer
         working-directory: desktop
+        shell: bash
         run: >-
           npx electron-builder --win nsis --x64 --publish never
           -c.extraMetadata.version=${{ needs.version.outputs.version }}
